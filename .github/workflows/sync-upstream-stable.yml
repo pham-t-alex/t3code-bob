@@ -70,4 +70,4 @@ jobs:
 
           gh pr create --base main --head "$branch" \
             --title "chore: merge upstream $tag" \
-            --body "Upstream T3 Code stable release [$tag](https://github.com/pingdotgg/t3code/releases/tag/$tag). Merge with a merge commit (not squash or rebase) so later syncs stay clean. If GitHub reports conflicts, resolve locally: \`git fetch origin && git checkout main && git merge origin/$branch\`."
+            --body "Upstream T3 Code stable release [$tag](https://github.com/pingdotgg/t3code/releases/tag/$tag). Review against the divergence list in FORK.md. Merge with a merge commit (not squash or rebase) so later syncs stay clean. If GitHub reports conflicts, resolve locally: \`git fetch origin && git checkout main && git merge origin/$branch\`."
