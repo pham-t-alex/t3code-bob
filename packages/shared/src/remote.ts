@@ -202,6 +202,14 @@ export const readPairingAppLink = (value: string): string | null => {
   return url.searchParams.get(PAIRING_APP_LINK_PARAM)?.trim() || null;
 };
 
+// Fork: Bob registers t3code-bob with the OS so its links never open stock T3 Code.
+// The renderer origin stays t3code://app; links are translated at the OS boundary.
+/** Rewrites a desktop `t3code:` link to the scheme this app registers with the OS. */
+export const toOsAppLink = (link: string): string => link.replace(/^t3code:/iu, "t3code-bob:");
+
+/** Reverses {@link toOsAppLink} for a link the OS hands to the desktop app. */
+export const fromOsAppLink = (link: string): string => link.replace(/^t3code-bob:/iu, "t3code:");
+
 export const resolveRemotePairingTarget = (input: {
   readonly pairingUrl?: string;
   readonly host?: string;

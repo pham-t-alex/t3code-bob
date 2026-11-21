@@ -17,17 +17,23 @@ afterAll(() => {
   NodeFS.rmSync(clerkStateDir, { recursive: true, force: true });
 });
 
-const { createClerkBridgeMock, requestSingleInstanceLockMock, storageAdapter, storageMock } =
-  vi.hoisted(() => ({
-    createClerkBridgeMock: vi.fn(),
-    requestSingleInstanceLockMock: vi.fn(() => true),
-    storageAdapter: {
-      getItem: vi.fn(),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-    },
-    storageMock: vi.fn(),
-  }));
+const {
+  createClerkBridgeMock,
+  registerSchemesAsPrivilegedMock,
+  requestSingleInstanceLockMock,
+  storageAdapter,
+  storageMock,
+} = vi.hoisted(() => ({
+  createClerkBridgeMock: vi.fn(),
+  registerSchemesAsPrivilegedMock: vi.fn(),
+  requestSingleInstanceLockMock: vi.fn(() => true),
+  storageAdapter: {
+    getItem: vi.fn(),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+  },
+  storageMock: vi.fn(),
+}));
 
 vi.mock("@clerk/electron", () => ({
   createClerkBridge: createClerkBridgeMock,
@@ -35,6 +41,10 @@ vi.mock("@clerk/electron", () => ({
 
 vi.mock("@clerk/electron/storage", () => ({
   storage: storageMock,
+}));
+
+vi.mock("electron", () => ({
+  protocol: { registerSchemesAsPrivileged: registerSchemesAsPrivilegedMock },
 }));
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
@@ -113,6 +123,7 @@ const layerDesktopClerk = (
 describe("DesktopClerk", () => {
   beforeEach(() => {
     createClerkBridgeMock.mockReset();
+    registerSchemesAsPrivilegedMock.mockReset();
     requestSingleInstanceLockMock.mockReset().mockReturnValue(true);
     storageMock.mockReset();
   });
@@ -151,6 +162,9 @@ describe("DesktopClerk", () => {
         events.push("createClerkBridge");
         return { cleanup: vi.fn(), isPrimaryInstance: true };
       });
+      registerSchemesAsPrivilegedMock.mockImplementation((schemes: { scheme: string }[]) => {
+        events.push(`registerSchemesAsPrivileged:${schemes.map(({ scheme }) => scheme).join(",")}`);
+      });
       // oxlint-disable-next-line t3code/no-manual-effect-runtime-in-tests -- The assertion IS that the layer builds synchronously; it.effect would mask a regression to async.
       Effect.runSync(
         Effect.scoped(
@@ -166,6 +180,8 @@ describe("DesktopClerk", () => {
         "on:second-instance",
         "on:open-url",
         "createClerkBridge",
+        // Clerk's own registration replaces Electron's list; the renderer's must come last.
+        "registerSchemesAsPrivileged:t3code,t3code-dev",
       ]);
       assert.deepEqual(storageMock.mock.calls, [
         [{ path: NodePath.join(NodePath.resolve(clerkStateDir), "clerk") }],

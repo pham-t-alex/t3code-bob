@@ -30,12 +30,22 @@ Review every sync PR against this list: each item must survive the merge, and co
 
 Tests asserting these values are updated to match. A new upstream place that hardcodes one of the upstream values above is a merge finding.
 
+**OS link scheme.** Bob registers `t3code-bob://` with the OS and never claims `t3code://`, so links meant for one app cannot open the other. The renderer origin stays `t3code://app`, which stock servers' CORS and T3 Connect expect; links are translated only at the OS boundary.
+
+- `toOsAppLink` / `fromOsAppLink` in `packages/shared/src/remote.ts` do the translation, and `getOsLinkScheme` in `apps/desktop/src/electron/ElectronProtocol.ts` names the scheme.
+- Outgoing: `codexAuthHandoffUrl` (`packages/shared/src/codexAuthHandoff.ts`), and the provider sign-in `returnUrl` the client sends (`signIn` in `apps/web/src/components/settings/CodexSetupSection.tsx`). The client names its own scheme because a server cannot tell which app started the sign-in; `providerAuthReturnUrl` accepts `t3code-bob:`. A stock server rejects that return URL and its callback page asks the user to return manually.
+- Incoming: launch args, `open-url`, and `second-instance` in `apps/desktop/src/app/DesktopClerk.ts`; relaunch arg filtering in `DesktopLifecycle.ts`.
+- Registration: Clerk's `renderer.scheme` in `DesktopClerk.ts` (Clerk calls `setAsDefaultProtocolClient` on every launch, on every platform, and receives OAuth callbacks there). Clerk also calls `registerSchemesAsPrivileged`, which replaces Electron's list, so `createDesktopClerkBridge` re-registers the renderer's schemes afterwards; `protocols` for macOS and Linux in `scripts/build-desktop-artifact.ts`; `DesktopLinuxUrlHandler.ts` and `DesktopPreReadyPlatform.ts`; `electron-launcher.mjs`.
+- Any new upstream code that builds or matches a production `t3code:` link for the OS must go through these helpers.
+
+T3 Connect sign-in from Bob returns on `t3code-bob://app/`; it only works if upstream's Clerk instance accepts that redirect.
+
 Side-by-side installs target macOS first, then Windows. Linux `.deb`/AppImage packages still share executable, desktop-entry, and doc paths with stock T3 Code; do not install both there.
 
 Still shared with stock T3 Code, on purpose:
 
 - On first launch, Bob imports once from a legacy V1 profile (`T3 Code (Alpha)` or `t3code`) if one exists: UI local storage on every platform, plus Chromium's `Local State` on Windows. Never the database, and never the current `t3code-v2` profile.
-- `t3code://` links open in one app only: macOS Launch Services picks a default among apps declaring the scheme; elsewhere the last app to register it wins.
+- `t3code://` links made outside Bob (prompt links from app.t3.codes, pairing links printed for the mobile app) open stock T3 Code, not Bob.
 - The `t3` shell command resolves to whichever install is first on `PATH`.
 - The background boot service (`t3code`) and MDM policy identifiers.
 - A WSL backend's data in the distro's `~/.t3`.

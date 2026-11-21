@@ -13,7 +13,7 @@ import { receiveCodexAuthCallback, CodexAuthCallbackError } from "./CodexAuthCal
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import { providerAuthReturnUrl } from "@t3tools/shared/providerAuthReturnUrl";
 import { promptLinkAppPath } from "@t3tools/shared/promptLinks";
-import { readPairingAppLink } from "@t3tools/shared/remote";
+import { fromOsAppLink, readPairingAppLink } from "@t3tools/shared/remote";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import * as ElectronApp from "../electron/ElectronApp.ts";
@@ -86,7 +86,7 @@ export const desktopClerkFrontendApiHostname = resolveDesktopClerkFrontendApiHos
 );
 
 function createDesktopClerkBridge(stateDir: string, isDevelopment: boolean, userDataPath: string) {
-  return createClerkBridge({
+  const bridge = createClerkBridge({
     storage: openClerkTokenStorage(
       stateDir,
       (directory) => storage({ path: directory }),
@@ -95,10 +95,14 @@ function createDesktopClerkBridge(stateDir: string, isDevelopment: boolean, user
     manageSingleInstanceLock: false,
     passkeys: true,
     renderer: {
-      scheme: ElectronProtocol.getDesktopScheme(isDevelopment),
+      // Fork: Clerk registers this scheme with the OS and receives OAuth callbacks on it.
+      scheme: ElectronProtocol.getOsLinkScheme(isDevelopment),
       host: ElectronProtocol.DESKTOP_HOST,
     },
   });
+  // Fork: Electron keeps only the last privileged-scheme list, and Clerk's names only t3code-bob.
+  ElectronProtocol.registerDesktopSchemePrivilegesSync();
+  return bridge;
 }
 
 /** @public */
@@ -127,7 +131,7 @@ export const make = Effect.gen(function* () {
     pendingSecondInstances.push(argv);
   };
   yield* electronApp.on("second-instance", (_event: unknown, argv: readonly string[]) => {
-    handleSecondInstance(argv);
+    handleSecondInstance((argv ?? []).map(fromOsAppLink));
   });
   // macOS hands a launch link to open-url, which can fire before configure runs.
   const pendingOpenUrls: Array<string> = [];
@@ -136,7 +140,7 @@ export const make = Effect.gen(function* () {
     return true;
   };
   yield* electronApp.on("open-url", (event: { preventDefault: () => void }, url: string) => {
-    if (handleOpenUrl(url)) event.preventDefault();
+    if (handleOpenUrl(fromOsAppLink(url))) event.preventDefault();
   });
 
   yield* Effect.acquireRelease(
@@ -221,7 +225,7 @@ export const make = Effect.gen(function* () {
         void runPromise(webLinks.receive(value));
         return true;
       };
-      const args = yield* HostProcess.Arguments;
+      const args = (yield* HostProcess.Arguments).map(fromOsAppLink);
       args.some((value) => startProviderAuthHandoff(value) || openAppLink(value));
       const openWebLink = (url: string) => {
         if (!DesktopWebLinks.isWebLink(url)) return false;

@@ -8,6 +8,7 @@ import {
   readCodexAuthDelivery,
   readCodexAuthHandoff,
 } from "./codexAuthHandoff.ts";
+import { fromOsAppLink } from "./remote.ts";
 
 const authorizationUrl = () => {
   const url = new URL("https://auth.openai.com/api/accounts/authorize");
@@ -28,11 +29,14 @@ const input = {
   instanceId: ProviderInstanceId.make("work-codex"),
   flowId: "flow-one",
 };
+// The desktop reads handoff links after reversing the OS scheme rewrite.
+const handoffLink = (handoff: typeof input) => fromOsAppLink(codexAuthHandoffUrl(handoff));
 const callbackUrl = `http://127.0.0.1:54213/auth/callback?state=${"a".repeat(43)}&code=one-time-code&client_id=oaiapp_test`;
 
 describe("Codex desktop handoff", () => {
   it("keeps the hosted return route, account, and environment with the code in a fragment", () => {
-    expect(readCodexAuthHandoff(codexAuthHandoffUrl(input), false)).toEqual(input);
+    expect(codexAuthHandoffUrl(input)).toMatch(/^t3code-bob:\/\/auth\/codex\?/);
+    expect(readCodexAuthHandoff(handoffLink(input), false)).toEqual(input);
     const delivery = codexAuthDeliveryUrl(input, callbackUrl);
     expect(new URL(delivery).search).toBe("");
     expect(readCodexAuthDelivery(delivery)).toEqual({
@@ -45,18 +49,18 @@ describe("Codex desktop handoff", () => {
     });
   });
   it("rejects other handlers, schemes, arbitrary return sites, and non-OpenAI authorization", () => {
-    const link = codexAuthHandoffUrl(input);
+    const link = handoffLink(input);
     expect(readCodexAuthHandoff(link, true)).toBeUndefined();
     expect(readCodexAuthHandoff(link.replace("auth/codex", "auth/other"), false)).toBeUndefined();
     expect(
       readCodexAuthHandoff(
-        codexAuthHandoffUrl({ ...input, returnUrl: "https://attacker.example/welcome" }),
+        handoffLink({ ...input, returnUrl: "https://attacker.example/welcome" }),
         false,
       ),
     ).toBeUndefined();
     expect(
       readCodexAuthHandoff(
-        codexAuthHandoffUrl({
+        handoffLink({
           ...input,
           authorizationUrl: input.authorizationUrl.replace("auth.openai.com", "attacker.example"),
         }),

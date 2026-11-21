@@ -1,6 +1,7 @@
 import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { providerAuthReturnUrl } from "./providerAuthReturnUrl.ts";
+import { toOsAppLink } from "./remote.ts";
 
 export const CodexAuthHandoff = Schema.Struct({
   authorizationUrl: Schema.String.check(Schema.isMaxLength(16_384)),
@@ -89,7 +90,7 @@ export function codexCallbackUrl(value: string, redirectUri: string, state: stri
 export function codexAuthHandoffUrl(input: CodexAuthHandoff, development = false) {
   const url = new URL(`${development ? "t3code-dev" : "t3code"}://auth/codex`);
   url.searchParams.set("request", encodeHandoff(input));
-  return url.toString();
+  return toOsAppLink(url.toString());
 }
 
 export function readCodexAuthHandoff(value: string, development: boolean) {
