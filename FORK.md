@@ -30,6 +30,14 @@ Review every sync PR against this list: each item must survive the merge, and co
 
 Tests asserting these values are updated to match. A new upstream place that hardcodes one of the upstream values above is a merge finding.
 
+**IBM Bob provider.** The `bob` driver lives in fork-owned `packages/provider-bob`, built on the shared ACP adapter. The plan is [issue #1](https://github.com/pham-t-alex/t3code-bob/issues/1). Upstream files register it next to Kiro, each edit marked `Fork:` where the format allows comments:
+
+- `apps/server/src/provider/builtInDrivers.ts`: `BobDriver` and `BobDriverEnv`.
+- `packages/client-runtime/src/providerClients.ts`, `apps/server/src/policy/managedProviders.ts`: `bobClient`.
+- `packages/contracts/src/model.ts`: default model `default` and display name `IBM Bob`.
+- `packages/contracts/src/settings.ts`: `bob` in `DEFAULT_DISABLED_PROVIDER_DRIVERS`, matching the driver's `enabled: false` default.
+- `apps/server/package.json`, `packages/client-runtime/package.json`, `pnpm-lock.yaml` (regenerate with `vp i` on conflict), the root `package.json` `knip:check:exports` list, and `scripts/release-smoke.ts`.
+
 **OS link scheme.** Bob registers `t3code-bob://` with the OS and never claims `t3code://`, so links meant for one app cannot open the other. The renderer origin stays `t3code://app`, which stock servers' CORS and T3 Connect expect; links are translated only at the OS boundary.
 
 - `toOsAppLink` / `fromOsAppLink` in `packages/shared/src/remote.ts` do the translation, and `getOsLinkScheme` in `apps/desktop/src/electron/ElectronProtocol.ts` names the scheme.
