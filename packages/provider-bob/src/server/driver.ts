@@ -1,7 +1,9 @@
 import { ProviderDriverKind, TextGenerationError } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import {
@@ -15,6 +17,7 @@ import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIden
 import { makeManualOnlyProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import {
   haveProviderSnapshotSettingsChanged,
   makeProviderSnapshotSettingsSource,
@@ -23,8 +26,14 @@ import {
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 
 import { BobSettings } from "../settings.ts";
-import { type BobAdapterV2DriverEnv, bobAdapterV2Driver } from "./adapter.ts";
-import { buildInitialBobProviderSnapshot, checkBobProviderStatus } from "./status.ts";
+import { type BobAdapterV2DriverEnv, makeBobAdapterV2Driver } from "./adapter.ts";
+import { makeBobAuth } from "./auth.ts";
+import {
+  buildInitialBobProviderSnapshot,
+  checkBobProviderStatus,
+  readCachedBobSignIn,
+  withBobSignIn,
+} from "./status.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("bob");
 const decodeBobSettings = Schema.decodeSync(BobSettings);
@@ -90,6 +99,14 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
       enabled,
       binaryPath: expandHomePath(config.binaryPath, yield* HostProcess.HomeDirectory),
     } satisfies BobSettings;
+    const usesApiKey = Boolean(processEnv.BOB_API_KEY?.trim());
+    const { paths } = yield* ProviderHost.ProviderHost;
+    const signIn = yield* Ref.make<"unknown" | "unauthenticated" | "authenticated">(
+      // An API key's result says nothing about SSO, and the key may have changed.
+      !usesApiKey && (yield* readCachedBobSignIn(paths.providerStatusCacheDir, instanceId))
+        ? "authenticated"
+        : "unknown",
+    );
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
     const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<BobSettings>>({
       resolveMaintenance: () => Effect.succeed(MAINTENANCE),
@@ -99,6 +116,9 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
       initialSnapshot: (settings) =>
         buildInitialBobProviderSnapshot(settings.provider).pipe(Effect.map(stampIdentity)),
       checkProvider: checkBobProviderStatus(effectiveConfig, processEnv).pipe(
+        Effect.flatMap((draft) =>
+          Ref.get(signIn).pipe(Effect.map((state) => withBobSignIn(draft, state, usesApiKey))),
+        ),
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       ),
@@ -114,7 +134,31 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
       ),
     );
 
-    const orchestrationAdapter = yield* bobAdapterV2Driver
+    const scope = yield* Scope.Scope;
+    // Refreshes in the background so a session start never waits on `bob --version`.
+    const recordSignIn = (state: "unauthenticated" | "authenticated") =>
+      Ref.getAndSet(signIn, state).pipe(
+        Effect.flatMap((previous) =>
+          previous === state
+            ? Effect.void
+            : snapshot.refresh.pipe(Effect.ignore, Effect.forkIn(scope), Effect.asVoid),
+        ),
+      );
+    // An API-key instance stays out of the shared SSO binding, so SSO sign-in never stops its sessions.
+    const auth = usesApiKey
+      ? undefined
+      : yield* makeBobAuth({
+          instanceId,
+          settings: effectiveConfig,
+          cwd: paths.cwd,
+          environment: processEnv,
+          onSignedIn: recordSignIn("authenticated"),
+        });
+
+    const orchestrationAdapter = yield* makeBobAdapterV2Driver({
+      onSignInRequired: recordSignIn("unauthenticated"),
+      onSessionStarted: recordSignIn("authenticated"),
+    })
       .create({
         instanceId,
         displayName,
@@ -143,6 +187,7 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
       accentColor,
       enabled,
       snapshot,
+      ...(auth ? { auth } : {}),
       orchestrationAdapter,
       textGeneration: unsupportedTextGeneration,
     } satisfies ProviderInstance;

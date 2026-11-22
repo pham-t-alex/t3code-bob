@@ -1,6 +1,6 @@
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
-import { ProviderDriverKind } from "@t3tools/contracts";
+import { ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
 import type * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
@@ -26,14 +26,29 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 
 import { BobSettings } from "../settings.ts";
-import { bobAutoApproves, bobPermissionDisposition, makeBobAcpRuntime } from "./acpSupport.ts";
+import {
+  bobAutoApproves,
+  bobPermissionDisposition,
+  bobSetupRefusal,
+  explainBobSetupRefusal,
+  isBobAuthRequired,
+  makeBobAcpRuntime,
+} from "./acpSupport.ts";
 
 const BOB_PROVIDER = ProviderDriverKind.make("bob");
 const DEFAULT_BOB_SETTINGS = Schema.decodeSync(BobSettings)({});
 
+/** Reports what each Bob session start learned about sign-in. */
+export interface BobSignInObserver {
+  readonly onSignInRequired: Effect.Effect<void>;
+  readonly onSessionStarted: Effect.Effect<void>;
+}
+
 interface BobAdapterV2Options {
+  readonly instanceId: ProviderInstanceId;
   readonly settings: BobSettings;
   readonly environment: NodeJS.ProcessEnv;
+  readonly signIn: BobSignInObserver;
 }
 
 function makeBobAcpAdapterFlavor(options: BobAdapterV2Options): AcpAdapterV2Flavor {
@@ -47,8 +62,23 @@ function makeBobAcpAdapterFlavor(options: BobAdapterV2Options): AcpAdapterV2Flav
         ...input,
         settings: options.settings,
         autoApprove: bobAutoApproves(runtimePolicy),
+        trust: true,
         environment: { ...options.environment, ...processEnvironment },
-      }),
+      }).pipe(
+        Effect.map((runtime) => ({
+          ...runtime,
+          start: () =>
+            runtime.start().pipe(
+              Effect.tap(() => options.signIn.onSessionStarted),
+              Effect.tapError((cause) =>
+                isBobAuthRequired(cause) ? options.signIn.onSignInRequired : Effect.void,
+              ),
+              Effect.mapError((cause) => explainBobSetupRefusal(options.instanceId, cause)),
+            ),
+        })),
+      ),
+    // Also ends retries for a license refusal, which only the user can clear.
+    requiresSignIn: (cause) => isBobAuthRequired(cause) || bobSetupRefusal(cause) !== undefined,
     permissionDisposition: bobPermissionDisposition,
   };
 }
@@ -63,7 +93,9 @@ export type BobAdapterV2DriverEnv =
   | ProviderEventLoggers.ProviderEventLoggers
   | ProviderHost.ProviderHost;
 
-export const bobAdapterV2Driver: ProviderAdapterDriver<BobSettings, BobAdapterV2DriverEnv> = {
+export const makeBobAdapterV2Driver = (
+  signIn: BobSignInObserver,
+): ProviderAdapterDriver<BobSettings, BobAdapterV2DriverEnv> => ({
   driverKind: BOB_PROVIDER,
   configSchema: BobSettings,
   defaultConfig: (): BobSettings => DEFAULT_BOB_SETTINGS,
@@ -75,8 +107,10 @@ export const bobAdapterV2Driver: ProviderAdapterDriver<BobSettings, BobAdapterV2
       return yield* makeAcpAdapterV2({
         instanceId: input.instanceId,
         flavor: makeBobAcpAdapterFlavor({
+          instanceId: input.instanceId,
           settings: { ...input.config, enabled: input.enabled },
           environment: yield* mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+          signIn,
         }),
         selfInvocation: yield* resolveSelfInvocation(),
         nativeLogging: (threadId) =>
@@ -100,4 +134,4 @@ export const bobAdapterV2Driver: ProviderAdapterDriver<BobSettings, BobAdapterV2
         ),
       ),
   ),
-};
+});

@@ -7,7 +7,9 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import { ChildProcess, type ChildProcessSpawner } from "effect/process";
 
@@ -56,6 +58,67 @@ const snapshot = (
   supportsTextGeneration: false,
 });
 
+/**
+ * Bob reports sign-in only when a session opens, so `signIn` is what T3 last saw:
+ * a session refused with `auth_required`, or a sign-in that finished.
+ */
+export function withBobSignIn(
+  draft: ServerProviderDraft,
+  signIn: "unknown" | "unauthenticated" | "authenticated",
+  usesApiKey: boolean,
+): ServerProviderDraft {
+  const signedOut = signIn === "unauthenticated" && draft.installed && draft.status === "ready";
+  return {
+    ...draft,
+    auth: { status: signIn, canLogout: false },
+    setup: { canAuthenticate: draft.installed && !usesApiKey, canInstall: false },
+    ...(signedOut
+      ? {
+          status: "warning",
+          message: usesApiKey
+            ? "IBM Bob did not accept BOB_API_KEY. Check the key in its provider settings."
+            : "Sign in to IBM Bob in its provider settings, or add BOB_API_KEY.",
+        }
+      : {}),
+  };
+}
+
+/**
+ * Whether the status T3 cached before a restart showed this instance signed in with SSO.
+ * A cached sign-out is not reused, since Bob's own CLI may have signed in since.
+ */
+export function cachedBobSignIn(raw: string, instanceId: string): boolean {
+  try {
+    const cached = JSON.parse(raw) as {
+      readonly driver?: unknown;
+      readonly instanceId?: unknown;
+      readonly auth?: { readonly status?: unknown };
+      readonly setup?: { readonly canAuthenticate?: unknown };
+    } | null;
+    return (
+      cached?.driver === BOB_DRIVER_KIND &&
+      cached.instanceId === instanceId &&
+      cached.auth?.status === "authenticated" &&
+      cached.setup?.canAuthenticate === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+// The server's provider status cache keeps each instance's last snapshot at `<instanceId>.json`.
+export const readCachedBobSignIn = Effect.fn("BobProvider.readCachedBobSignIn")(function* (
+  cacheDir: string,
+  instanceId: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const raw = yield* fileSystem
+    .readFileString(path.join(cacheDir, `${instanceId}.json`))
+    .pipe(Effect.orElseSucceed(() => ""));
+  return cachedBobSignIn(raw, instanceId);
+});
+
 export const buildInitialBobProviderSnapshot = Effect.fn(
   "BobProvider.buildInitialBobProviderSnapshot",
 )(function* (settings: BobSettings): Effect.fn.Return<ServerProviderDraft> {
@@ -86,7 +149,6 @@ const runBobVersion = Effect.fn("BobProvider.runBobVersion")(function* (
   );
 });
 
-/** Sign-in is not checked yet: Bob reports it only when a session starts. */
 export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(function* (
   settings: BobSettings,
   environment: NodeJS.ProcessEnv,

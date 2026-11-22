@@ -1,11 +1,11 @@
 import type * as EffectAcpSchema from "effect-acp/compat";
-import type { RuntimeMode } from "@t3tools/contracts";
+import { type ProviderInstanceId, ProviderSetupError, type RuntimeMode } from "@t3tools/contracts";
 import type * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 import type * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-import type * as EffectAcpErrors from "effect-acp/errors";
+import * as EffectAcpErrors from "effect-acp/errors";
 
 import {
   acpPermissionDisposition,
@@ -39,19 +39,76 @@ export function bobAutoApproves(policy: {
   );
 }
 
-/** Never `--trust`: it would save every opened folder as trusted in Bob's own settings. */
+/**
+ * `--trust` saves the folder as trusted in Bob's own settings. T3 treats a project it
+ * opens as trusted, as Muse's `--trust-workspace` does, and each worktree is a new folder.
+ */
 export function buildBobAcpSpawnInput(
   settings: Pick<BobSettings, "binaryPath"> | null | undefined,
   cwd: string,
-  autoApprove: boolean,
+  launch: {
+    readonly autoApprove: boolean;
+    readonly trust?: boolean;
+    readonly logLoginUrl?: boolean;
+  },
   environment?: NodeJS.ProcessEnv,
 ): AcpSessionRuntime.AcpSpawnInput {
   return {
     command: settings?.binaryPath || "bob",
-    args: autoApprove ? ["acp", "--auto-approve"] : ["acp"],
+    args: [
+      "acp",
+      ...(launch.autoApprove ? ["--auto-approve"] : []),
+      ...(launch.trust ? ["--trust"] : []),
+      // Bob prints its SSO link to stderr only at info level, which a host without a browser needs.
+      ...(launch.logLoginUrl ? ["--log-level", "info"] : []),
+    ],
     cwd,
     ...(environment === undefined ? {} : { env: environment }),
   };
+}
+
+/** ACP's reserved `auth_required` code. */
+export function isBobAuthRequired(cause: unknown): boolean {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    (cause as { readonly _tag?: unknown })._tag === "AcpRequestError" &&
+    (cause as { readonly code?: unknown }).code === -32000
+  );
+}
+
+/** What the user must do when Bob refuses a session because its license is not accepted. */
+export function bobSetupRefusal(cause: unknown): string | undefined {
+  if (typeof cause !== "object" || cause === null) return undefined;
+  const { _tag, code, errorMessage } = cause as {
+    readonly _tag?: unknown;
+    readonly code?: unknown;
+    readonly errorMessage?: unknown;
+  };
+  if (_tag !== "AcpRequestError" || code !== -32600 || typeof errorMessage !== "string") {
+    return undefined;
+  }
+  return /licen[cs]e/i.test(errorMessage)
+    ? "IBM Bob's license has not been accepted on this machine. Run `bob` in a terminal and accept it, then retry the turn."
+    : undefined;
+}
+
+/**
+ * T3 shows a setup error's text from anywhere in a failure's cause chain, but hides
+ * agent request text, so Bob's refusal carries T3's own advice as its cause.
+ */
+export function explainBobSetupRefusal(
+  instanceId: ProviderInstanceId,
+  cause: EffectAcpErrors.AcpError,
+): EffectAcpErrors.AcpError {
+  const detail = bobSetupRefusal(cause);
+  if (detail === undefined || cause._tag !== "AcpRequestError") return cause;
+  return new EffectAcpErrors.AcpRequestError({
+    code: cause.code,
+    errorMessage: cause.errorMessage,
+    ...(cause.method === undefined ? {} : { method: cause.method }),
+    cause: new ProviderSetupError({ instanceId, operation: "openSession", detail }),
+  });
 }
 
 /**
@@ -67,10 +124,12 @@ export function bobPermissionDisposition(
 
 export interface BobAcpRuntimeInput extends Omit<
   AcpSessionRuntime.AcpSessionRuntimeOptions,
-  "authMethodId" | "spawn"
+  "authMethodId" | "authenticateOnAuthRequired" | "spawn"
 > {
   readonly settings: Pick<BobSettings, "binaryPath"> | null | undefined;
   readonly autoApprove: boolean;
+  readonly trust?: boolean;
+  readonly logLoginUrl?: boolean;
   readonly environment?: NodeJS.ProcessEnv;
 }
 
@@ -81,11 +140,18 @@ export const makeBobAcpRuntime = Effect.fn("BobAcpSupport.makeBobAcpRuntime")(fu
   EffectAcpErrors.AcpError,
   ChildProcessSpawner.ChildProcessSpawner | SecureRandom.SecureRandom | Scope.Scope
 > {
-  const { settings, autoApprove, environment, ...runtimeOptions } = input;
+  const { settings, autoApprove, trust, logLoginUrl, environment, ...runtimeOptions } = input;
   const context = yield* Layer.build(
     AcpSessionRuntime.layer({
       ...runtimeOptions,
-      spawn: buildBobAcpSpawnInput(settings, input.cwd, autoApprove, environment),
+      // Signing in from a turn would block on a browser, which an SSH host never opens.
+      authenticateOnAuthRequired: false,
+      spawn: buildBobAcpSpawnInput(
+        settings,
+        input.cwd,
+        { autoApprove, ...(trust ? { trust } : {}), ...(logLoginUrl ? { logLoginUrl } : {}) },
+        environment,
+      ),
     }),
   );
   return yield* Effect.service(AcpSessionRuntime.AcpSessionRuntime).pipe(Effect.provide(context));
