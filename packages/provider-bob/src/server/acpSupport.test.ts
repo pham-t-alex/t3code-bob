@@ -26,7 +26,7 @@ const editRequest = {
 } as unknown as EffectAcpSchema.RequestPermissionRequest;
 
 describe("Bob ACP launch and approvals", () => {
-  it("passes --auto-approve only for unrestricted Full access", () => {
+  it("passes --auto-approve only for unrestricted Full access, never --trust", () => {
     const launch = (policy: Parameters<typeof bobAutoApproves>[0]) =>
       buildBobAcpSpawnInput({ binaryPath: "" }, "/work", { autoApprove: bobAutoApproves(policy) })
         .args;
@@ -37,10 +37,6 @@ describe("Bob ACP launch and approvals", () => {
     assert.equal(
       buildBobAcpSpawnInput({ binaryPath: "" }, "/work", { autoApprove: false }).command,
       "bob",
-    );
-    assert.deepEqual(
-      buildBobAcpSpawnInput({ binaryPath: "" }, "/work", { autoApprove: false, trust: true }).args,
-      ["acp", "--trust"],
     );
   });
 
@@ -90,7 +86,14 @@ describe("Bob setup refusals", () => {
       ),
     );
 
-  it("explains Bob's license refusal, and nothing else", () => {
+  it("explains Bob's untrusted folder and license refusals, and nothing else", () => {
+    assert.match(
+      shown(
+        -32600,
+        'Invalid request: Workspace "/work" is not trusted. Pass --trust to continue.',
+      ) ?? "",
+      /not to trust this folder/,
+    );
     assert.match(shown(-32600, "Invalid request: accept the license first") ?? "", /license/);
     assert.equal(shown(-32600, "Invalid request: unknown session"), undefined);
     assert.equal(shown(-32603, "license server unreachable"), undefined);

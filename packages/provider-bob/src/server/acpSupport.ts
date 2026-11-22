@@ -40,17 +40,13 @@ export function bobAutoApproves(policy: {
 }
 
 /**
- * `--trust` saves the folder as trusted in Bob's own settings. T3 treats a project it
- * opens as trusted, as Muse's `--trust-workspace` does, and each worktree is a new folder.
+ * Never `--trust`: it saves every opened folder as trusted in Bob's settings, even one the
+ * user marked untrusted. Bob 2.1 already trusts undecided folders for the session.
  */
 export function buildBobAcpSpawnInput(
   settings: Pick<BobSettings, "binaryPath"> | null | undefined,
   cwd: string,
-  launch: {
-    readonly autoApprove: boolean;
-    readonly trust?: boolean;
-    readonly logLoginUrl?: boolean;
-  },
+  launch: { readonly autoApprove: boolean; readonly logLoginUrl?: boolean },
   environment?: NodeJS.ProcessEnv,
 ): AcpSessionRuntime.AcpSpawnInput {
   return {
@@ -58,7 +54,6 @@ export function buildBobAcpSpawnInput(
     args: [
       "acp",
       ...(launch.autoApprove ? ["--auto-approve"] : []),
-      ...(launch.trust ? ["--trust"] : []),
       // Bob prints its SSO link to stderr only at info level, which a host without a browser needs.
       ...(launch.logLoginUrl ? ["--log-level", "info"] : []),
     ],
@@ -77,7 +72,7 @@ export function isBobAuthRequired(cause: unknown): boolean {
   );
 }
 
-/** What the user must do when Bob refuses a session because its license is not accepted. */
+/** What the user must do when Bob refuses a session over an untrusted folder or its license. */
 export function bobSetupRefusal(cause: unknown): string | undefined {
   if (typeof cause !== "object" || cause === null) return undefined;
   const { _tag, code, errorMessage } = cause as {
@@ -88,9 +83,13 @@ export function bobSetupRefusal(cause: unknown): string | undefined {
   if (_tag !== "AcpRequestError" || code !== -32600 || typeof errorMessage !== "string") {
     return undefined;
   }
-  return /licen[cs]e/i.test(errorMessage)
-    ? "IBM Bob's license has not been accepted on this machine. Run `bob` in a terminal and accept it, then retry the turn."
-    : undefined;
+  if (/not trusted|untrusted/i.test(errorMessage)) {
+    return "IBM Bob is set not to trust this folder. Trust it with `bob` in a terminal, then retry the turn.";
+  }
+  if (/licen[cs]e/i.test(errorMessage)) {
+    return "IBM Bob's license has not been accepted on this machine. Run `bob` in a terminal and accept it, then retry the turn.";
+  }
+  return undefined;
 }
 
 /**
@@ -128,7 +127,6 @@ export interface BobAcpRuntimeInput extends Omit<
 > {
   readonly settings: Pick<BobSettings, "binaryPath"> | null | undefined;
   readonly autoApprove: boolean;
-  readonly trust?: boolean;
   readonly logLoginUrl?: boolean;
   readonly environment?: NodeJS.ProcessEnv;
 }
@@ -140,7 +138,7 @@ export const makeBobAcpRuntime = Effect.fn("BobAcpSupport.makeBobAcpRuntime")(fu
   EffectAcpErrors.AcpError,
   ChildProcessSpawner.ChildProcessSpawner | SecureRandom.SecureRandom | Scope.Scope
 > {
-  const { settings, autoApprove, trust, logLoginUrl, environment, ...runtimeOptions } = input;
+  const { settings, autoApprove, logLoginUrl, environment, ...runtimeOptions } = input;
   const context = yield* Layer.build(
     AcpSessionRuntime.layer({
       ...runtimeOptions,
@@ -149,7 +147,7 @@ export const makeBobAcpRuntime = Effect.fn("BobAcpSupport.makeBobAcpRuntime")(fu
       spawn: buildBobAcpSpawnInput(
         settings,
         input.cwd,
-        { autoApprove, ...(trust ? { trust } : {}), ...(logLoginUrl ? { logLoginUrl } : {}) },
+        { autoApprove, ...(logLoginUrl ? { logLoginUrl } : {}) },
         environment,
       ),
     }),

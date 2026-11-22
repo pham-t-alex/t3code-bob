@@ -62,7 +62,6 @@ function makeBobAcpAdapterFlavor(options: BobAdapterV2Options): AcpAdapterV2Flav
         ...input,
         settings: options.settings,
         autoApprove: bobAutoApproves(runtimePolicy),
-        trust: true,
         environment: { ...options.environment, ...processEnvironment },
       }).pipe(
         Effect.map((runtime) => ({
@@ -77,7 +76,7 @@ function makeBobAcpAdapterFlavor(options: BobAdapterV2Options): AcpAdapterV2Flav
             ),
         })),
       ),
-    // Also ends retries for a license refusal, which only the user can clear.
+    // Also ends retries for a trust or license refusal, which only the user can clear.
     requiresSignIn: (cause) => isBobAuthRequired(cause) || bobSetupRefusal(cause) !== undefined,
     permissionDisposition: bobPermissionDisposition,
   };
