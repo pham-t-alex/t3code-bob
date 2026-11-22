@@ -1,0 +1,245 @@
+name: Release T3 Code Bob
+
+# Fork-owned. Pushing a tag like v0.1.11-bob.1 publishes a GitHub Release with
+# the macOS installers and the server archives SSH environments download
+# (packages/shared/src/cliRelease.ts points them here). Each platform is built
+# by upstream's reusable release-desktop.yml on GitHub-hosted runners, unsigned.
+# Upstream's own release.yml stays disabled: its tag filter matches these tags.
+
+on:
+  push:
+    tags:
+      - "v*-bob.*"
+
+concurrency:
+  group: release-bob
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      upstream_version: ${{ steps.meta.outputs.upstream_version }}
+    steps:
+      # The suffix keeps an SSH host from reusing a stock `t3` of the same version.
+      # Upstream tags a release before bumping package.json, so the tag names the version.
+      - name: Resolve release version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-bob\.[1-9][0-9]*$ ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME must look like v0.1.11-bob.1." >&2
+            exit 1
+          fi
+          upstream_version="${BASH_REMATCH[1]}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "upstream_version=$upstream_version" >> "$GITHUB_OUTPUT"
+
+  # Same as release.yml's build_bundle, without T3 Connect config or the npm launcher.
+  build_bundle:
+    name: Build JS bundle
+    needs: [preflight]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+
+      - name: Align package versions to release version
+        run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
+
+      - name: Build JS bundle
+        env:
+          T3CODE_TELEMETRY_CHANNEL: dev
+        run: vp run build:desktop:bundle
+
+      - name: Upload JS bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+          retention-days: 1
+
+  desktop_mac_arm64:
+    name: macOS arm64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: macOS arm64
+      runner: macos-15
+      platform: mac
+      target: dmg
+      arch: arm64
+      rust_target: aarch64-apple-darwin
+      resource_key: darwin-arm64
+      cli_archive: true
+      save_pnpm_store: false
+
+  # Desktop only: Node single-executables do not run on Intel Macs, so no server archive.
+  desktop_mac_x64:
+    name: macOS x64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: macOS x64
+      runner: macos-15
+      platform: mac
+      target: dmg
+      arch: x64
+      rust_target: x86_64-apple-darwin
+      resource_key: darwin-x64
+      cli_archive: false
+      save_pnpm_store: true
+
+  # Built for the server archive; the Linux desktop packages are not published,
+  # since they clash with stock T3 Code's (see FORK.md).
+  linux_x64:
+    name: Linux x64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: Linux x64
+      runner: ubuntu-24.04
+      platform: linux
+      target: AppImage
+      arch: x64
+      rust_target: x86_64-unknown-linux-gnu
+      resource_key: linux-x64
+      cli_archive: true
+      save_pnpm_store: true
+
+  linux_arm64:
+    name: Linux arm64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: Linux arm64
+      runner: ubuntu-24.04-arm
+      platform: linux
+      target: AppImage
+      arch: arm64
+      rust_target: aarch64-unknown-linux-gnu
+      resource_key: linux-arm64
+      cli_archive: true
+      save_pnpm_store: true
+
+  release:
+    name: Publish GitHub Release
+    needs: [preflight, desktop_mac_arm64, desktop_mac_x64, linux_x64, linux_arm64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: desktop-mac-*
+          merge-multiple: true
+          path: desktop
+
+      - name: Download server archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: release-assets
+
+      # Unsigned macOS builds cannot update in place, so no updater manifests are published.
+      - name: Collect release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          dmgs=(desktop/*.dmg)
+          if [[ ${#dmgs[@]} -ne 2 ]]; then
+            echo "Expected an arm64 and an x64 .dmg, found: ${dmgs[*]:-none}" >&2
+            exit 1
+          fi
+          cp "${dmgs[@]}" release-assets/
+          cd release-assets
+          archives=(t3-*.tar.gz)
+          if [[ ${#archives[@]} -ne 3 ]]; then
+            echo "Expected three server archives, found: ${archives[*]:-none}" >&2
+            exit 1
+          fi
+          sha256sum "${archives[@]}" > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > release-notes.md <<EOF
+          T3 Code Bob ${{ needs.preflight.outputs.version }}, built from T3 Code ${{ needs.preflight.outputs.upstream_version }} with the IBM Bob provider.
+
+          - macOS: the \`arm64\` .dmg is for Apple Silicon, \`x64\` for Intel. Builds are unsigned: approve the app in System Settings > Privacy & Security on first launch. Update by installing the new .dmg.
+          - SSH environments install the matching server from this release's \`t3-*.tar.gz\` archives (Apple Silicon macOS and Linux) into \`~/.t3-bob\` on the host.
+          EOF
+
+      - name: Publish release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: T3 Code Bob ${{ needs.preflight.outputs.version }}
+          body_path: release-notes.md
+          make_latest: true
+          files: |
+            release-assets/*.dmg
+            release-assets/t3-*.tar.gz
+            release-assets/SHA256SUMS
+          fail_on_unmatched_files: true
+          token: ${{ github.token }}
