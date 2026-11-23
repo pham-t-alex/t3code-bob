@@ -21,7 +21,7 @@ export const BobSettings = makeProviderSettingsSchema(
     ),
     // The settings form edits text, so the number is stored as typed.
     monthlyBobcoinLimit: Schema.optionalKey(
-      TrimmedString.check(Schema.isPattern(/^\d+(\.\d+)?$/)),
+      TrimmedString.check(Schema.isPattern(/^[1-9]\d{0,8}(\.\d+)?$/)),
     ).pipe(
       Schema.annotateKey({
         title: "Monthly Bobcoin limit",

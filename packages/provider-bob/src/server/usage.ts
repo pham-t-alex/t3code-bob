@@ -66,9 +66,9 @@ export const readBobUsage = Effect.fn("readBobUsage")(function* (
   sinceMs: number,
 ): Effect.fn.Return<BobUsageReadResult, never, FileSystem.FileSystem> {
   const fileSystem = yield* FileSystem.FileSystem;
-  if (!(yield* fileSystem.exists(databasePath).pipe(Effect.orElseSucceed(() => false)))) {
-    return { records: [], missing: true, error: false };
-  }
+  const exists = yield* fileSystem.exists(databasePath).pipe(Effect.orElseSucceed(() => undefined));
+  if (exists === undefined) return { records: [], missing: false, error: true };
+  if (!exists) return { records: [], missing: true, error: false };
   // An unknown schema fails a query, which reports the source as partial.
   return yield* Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -185,10 +185,9 @@ export const readBobUsageLimits = Effect.fn("readBobUsageLimits")(function* (
       message: "IBM Bob usage could not be read.",
     });
   }
-  const spent = result.records.reduce(
-    (sum, record) => sum + (record.reportedCostUsd ?? 0) / USD_PER_BOBCOIN,
-    0,
-  );
+  const spent = result.records
+    .filter((record) => record.timestampMs < DateTime.toEpochMillis(nextMonth))
+    .reduce((sum, record) => sum + (record.reportedCostUsd ?? 0) / USD_PER_BOBCOIN, 0);
   return makeUsageLimits({
     checkedAt,
     windows: [
