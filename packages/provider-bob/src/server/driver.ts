@@ -1,6 +1,9 @@
 import { ProviderDriverKind, TextGenerationError } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -12,6 +15,7 @@ import {
   type ProviderInstance,
 } from "@t3tools/provider-core/server/driver";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
+import type { ServerProviderDraft } from "@t3tools/provider-core/server/snapshotProbe";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
@@ -27,7 +31,12 @@ import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textG
 
 import { BobSettings } from "../settings.ts";
 import { type BobAdapterV2DriverEnv, makeBobAdapterV2Driver } from "./adapter.ts";
-import { bobUsageReader, type BobUsageReaderEnv } from "./usage.ts";
+import {
+  bobDatabasePath,
+  bobUsageReader,
+  type BobUsageReaderEnv,
+  readBobUsageLimits,
+} from "./usage.ts";
 import { makeBobAuth } from "./auth.ts";
 import {
   buildInitialBobProviderSnapshot,
@@ -109,6 +118,17 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv, BobUsageReader
         ? "authenticated"
         : "unknown",
     );
+    const monthlyBobcoins = Number(effectiveConfig.monthlyBobcoinLimit);
+    const databasePath = bobDatabasePath(yield* Path.Path, yield* HostProcess.HomeDirectory);
+    const fileSystem = yield* FileSystem.FileSystem;
+    const withMonthlyLimit = (draft: ServerProviderDraft) =>
+      effectiveConfig.enabled && monthlyBobcoins > 0
+        ? Clock.currentTimeMillis.pipe(
+            Effect.flatMap((nowMs) => readBobUsageLimits(databasePath, monthlyBobcoins, nowMs)),
+            Effect.map((usageLimits) => ({ ...draft, usageLimits })),
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+          )
+        : Effect.succeed(draft);
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
     const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<BobSettings>>({
       resolveMaintenance: () => Effect.succeed(MAINTENANCE),
@@ -121,6 +141,7 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv, BobUsageReader
         Effect.flatMap((draft) =>
           Ref.get(signIn).pipe(Effect.map((state) => withBobSignIn(draft, state, usesApiKey))),
         ),
+        Effect.flatMap(withMonthlyLimit),
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       ),

@@ -1,6 +1,13 @@
+import type { ServerProviderUsageLimits } from "@t3tools/contracts";
 import type { ProviderUsageReader, UsageRecord } from "@t3tools/provider-core/server/usage";
+import {
+  clampPercent,
+  makeUnavailableUsageLimits,
+  makeUsageLimits,
+} from "@t3tools/provider-core/server/usageLimits";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -59,9 +66,9 @@ export const readBobUsage = Effect.fn("readBobUsage")(function* (
   sinceMs: number,
 ): Effect.fn.Return<BobUsageReadResult, never, FileSystem.FileSystem> {
   const fileSystem = yield* FileSystem.FileSystem;
-  if (!(yield* fileSystem.exists(databasePath).pipe(Effect.orElseSucceed(() => false)))) {
-    return { records: [], missing: true, error: false };
-  }
+  const exists = yield* fileSystem.exists(databasePath).pipe(Effect.orElseSucceed(() => undefined));
+  if (exists === undefined) return { records: [], missing: false, error: true };
+  if (!exists) return { records: [], missing: true, error: false };
   // An unknown schema fails a query, which reports the source as partial.
   return yield* Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -140,8 +147,8 @@ export const bobUsageReader: ProviderUsageReader<BobSettings, BobUsageReaderEnv>
   provider: "bob",
   scan: Effect.fn("bobUsageReader.scan")(function* ({ windowStartMs }) {
     const path = yield* Path.Path;
-    const dir = path.join(yield* HostProcess.HomeDirectory, ".bob", "db");
-    const databasePath = path.join(dir, "bob.db");
+    const databasePath = bobDatabasePath(path, yield* HostProcess.HomeDirectory);
+    const dir = path.dirname(databasePath);
     const result = yield* readBobUsage(databasePath, windowStartMs);
     return [
       {
@@ -153,3 +160,47 @@ export const bobUsageReader: ProviderUsageReader<BobSettings, BobUsageReaderEnv>
     ];
   }),
 };
+
+// IBM resets the allowance on the 1st of each month; US Eastern is close enough for its users.
+const BOB_ALLOWANCE_ZONE = DateTime.zoneMakeNamedUnsafe("America/New_York");
+
+export const bobDatabasePath = (path: Path.Path, home: string) =>
+  path.join(home, ".bob", "db", "bob.db");
+
+/** The month's Bobcoin spend in `bob.db` against the user's allowance, as a monthly window. */
+export const readBobUsageLimits = Effect.fn("readBobUsageLimits")(function* (
+  databasePath: string,
+  monthlyBobcoins: number,
+  nowMs: number,
+): Effect.fn.Return<ServerProviderUsageLimits, never, FileSystem.FileSystem> {
+  const now = DateTime.makeZonedUnsafe(nowMs, { timeZone: BOB_ALLOWANCE_ZONE });
+  const monthStart = DateTime.startOf(now, "month");
+  const nextMonth = DateTime.add(monthStart, { months: 1 });
+  const checkedAt = DateTime.formatIso(now);
+  const result = yield* readBobUsage(databasePath, DateTime.toEpochMillis(monthStart));
+  if (result.error) {
+    return makeUnavailableUsageLimits({
+      checkedAt,
+      reason: "probeFailed",
+      message: "IBM Bob usage could not be read.",
+    });
+  }
+  const spent = result.records
+    .filter((record) => record.timestampMs < DateTime.toEpochMillis(nextMonth))
+    .reduce((sum, record) => sum + (record.reportedCostUsd ?? 0) / USD_PER_BOBCOIN, 0);
+  return makeUsageLimits({
+    checkedAt,
+    windows: [
+      {
+        id: "monthly",
+        kind: "monthly",
+        label: "Monthly",
+        usedPercent: clampPercent((spent / monthlyBobcoins) * 100),
+        resetsAt: DateTime.formatIso(nextMonth),
+        windowDurationMins: Math.round(
+          (DateTime.toEpochMillis(nextMonth) - DateTime.toEpochMillis(monthStart)) / 60_000,
+        ),
+      },
+    ],
+  });
+});

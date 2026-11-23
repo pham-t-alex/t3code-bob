@@ -8,7 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { readBobUsage } from "./usage.ts";
+import { readBobUsage, readBobUsageLimits } from "./usage.ts";
 
 // Bob 2.1's columns for the two tables the reader reads (schema version 18).
 const BOB_SCHEMA = [
@@ -124,6 +124,32 @@ describe("readBobUsage", () => {
       ]);
       const unknown = yield* readBobUsage(filename, 0);
       assert.deepEqual([unknown.missing, unknown.error, unknown.records.length], [false, true, 0]);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("measures the US Eastern calendar month's spend against the allowance", () =>
+    Effect.gen(function* () {
+      // 22:00 on Nov 30 in New York, already December in UTC. Nov 1 2026 is also when US
+      // daylight time ends, so November starts at 04:00Z and December at 05:00Z.
+      const now = Date.UTC(2026, 11, 1, 3);
+      const filename = yield* writeDatabase([
+        ...BOB_SCHEMA,
+        task("root", null, 1.75, Date.UTC(2026, 11, 1, 2)),
+        message("october", "root", "assistant", Date.UTC(2026, 10, 1, 3, 30), 1),
+        message("mid-month", "root", "assistant", Date.UTC(2026, 10, 15), 0.5),
+        message("late", "root", "assistant", Date.UTC(2026, 11, 1, 2), 0.25),
+      ]);
+      const limits = yield* readBobUsageLimits(filename, 3, now);
+      assert.deepEqual(limits.windows, [
+        {
+          id: "monthly",
+          kind: "monthly",
+          label: "Monthly",
+          usedPercent: 25,
+          resetsAt: "2026-12-01T05:00:00.000Z",
+          windowDurationMins: 30 * 24 * 60 + 60,
+        },
+      ]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });
