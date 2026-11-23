@@ -38,6 +38,7 @@ const workspaceFiles = [
   "packages/provider-fx/package.json",
   "packages/provider-grok/package.json",
   "packages/provider-kiro/package.json",
+  "packages/provider-bob/package.json", // Fork: IBM Bob provider.
   "packages/provider-muse/package.json",
   "packages/provider-opencode/package.json",
   "packages/issue-tracker-linear/package.json",

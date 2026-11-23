@@ -1,0 +1,195 @@
+import { ProviderDriverKind, TextGenerationError } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Effect from "effect/Effect";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+
+import {
+  defaultProviderContinuationIdentity,
+  type ProviderDriver,
+  type ProviderInstance,
+} from "@t3tools/provider-core/server/driver";
+import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
+import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
+import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
+import { makeManualOnlyProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
+import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+import {
+  haveProviderSnapshotSettingsChanged,
+  makeProviderSnapshotSettingsSource,
+  type ProviderSnapshotSettings,
+} from "@t3tools/provider-core/server/snapshotSettings";
+import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
+
+import { BobSettings } from "../settings.ts";
+import { type BobAdapterV2DriverEnv, makeBobAdapterV2Driver } from "./adapter.ts";
+import { makeBobAuth } from "./auth.ts";
+import {
+  buildInitialBobProviderSnapshot,
+  checkBobProviderStatus,
+  readCachedBobSignIn,
+  withBobSignIn,
+} from "./status.ts";
+
+const DRIVER_KIND = ProviderDriverKind.make("bob");
+const decodeBobSettings = Schema.decodeSync(BobSettings);
+const MAINTENANCE = makeManualOnlyProviderMaintenanceCapabilities({
+  provider: DRIVER_KIND,
+  packageName: null,
+});
+
+const unsupportedTextGeneration: ProviderTextGeneration = (() => {
+  const unsupported = (operation: string) =>
+    Effect.fail(
+      new TextGenerationError({
+        operation,
+        detail: "IBM Bob does not provide application text generation.",
+      }),
+    );
+  return {
+    generateCommitMessage: () => unsupported("generateCommitMessage"),
+    generatePrContent: () => unsupported("generatePrContent"),
+    generateBranchName: () => unsupported("generateBranchName"),
+    generateThreadTitle: () => unsupported("generateThreadTitle"),
+    generateReviewGuide: () => unsupported("generateReviewGuide"),
+    generateTranscriptionPostProcessing: () => unsupported("generateTranscriptionPostProcessing"),
+  };
+})();
+
+export type BobDriverEnv = BobAdapterV2DriverEnv | ChildProcessSpawner.ChildProcessSpawner;
+
+export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
+  driverKind: DRIVER_KIND,
+  metadata: {
+    displayName: "IBM Bob",
+    supportsMultipleInstances: true,
+  },
+  configSchema: BobSettings,
+  defaultConfig: (): BobSettings => decodeBobSettings({}),
+  create: Effect.fn("BobDriver.create")(function* ({
+    instanceId,
+    displayName,
+    accentColor,
+    environment,
+    enabled,
+    config,
+  }) {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const processEnv = yield* mergeProviderInstanceEnvironment(
+      environment,
+      yield* HostProcess.Environment,
+    );
+    const continuationIdentity = defaultProviderContinuationIdentity({
+      driverKind: DRIVER_KIND,
+      instanceId,
+    });
+    const stampIdentity = withInstanceIdentity({
+      instanceId,
+      driverKind: DRIVER_KIND,
+      displayName,
+      accentColor,
+      continuationGroupKey: continuationIdentity.continuationKey,
+    });
+    const effectiveConfig = {
+      ...config,
+      enabled,
+      binaryPath: expandHomePath(config.binaryPath, yield* HostProcess.HomeDirectory),
+    } satisfies BobSettings;
+    const usesApiKey = Boolean(processEnv.BOB_API_KEY?.trim());
+    const { paths } = yield* ProviderHost.ProviderHost;
+    const signIn = yield* Ref.make<"unknown" | "unauthenticated" | "authenticated">(
+      // An API key's result says nothing about SSO, and the key may have changed.
+      !usesApiKey && (yield* readCachedBobSignIn(paths.providerStatusCacheDir, instanceId))
+        ? "authenticated"
+        : "unknown",
+    );
+    const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
+    const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<BobSettings>>({
+      resolveMaintenance: () => Effect.succeed(MAINTENANCE),
+      getSettings: snapshotSettings.getSettings,
+      streamSettings: snapshotSettings.streamSettings,
+      haveSettingsChanged: haveProviderSnapshotSettingsChanged,
+      initialSnapshot: (settings) =>
+        buildInitialBobProviderSnapshot(settings.provider).pipe(Effect.map(stampIdentity)),
+      checkProvider: checkBobProviderStatus(effectiveConfig, processEnv).pipe(
+        Effect.flatMap((draft) =>
+          Ref.get(signIn).pipe(Effect.map((state) => withBobSignIn(draft, state, usesApiKey))),
+        ),
+        Effect.map(stampIdentity),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      ),
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProviderDriverError({
+            driver: DRIVER_KIND,
+            instanceId,
+            detail: "Failed to build IBM Bob snapshot.",
+            cause,
+          }),
+      ),
+    );
+
+    const scope = yield* Scope.Scope;
+    // Refreshes in the background so a session start never waits on `bob --version`.
+    const recordSignIn = (state: "unauthenticated" | "authenticated") =>
+      Ref.getAndSet(signIn, state).pipe(
+        Effect.flatMap((previous) =>
+          previous === state
+            ? Effect.void
+            : snapshot.refresh.pipe(Effect.ignore, Effect.forkIn(scope), Effect.asVoid),
+        ),
+      );
+    // An API-key instance stays out of the shared SSO binding, so SSO sign-in never stops its sessions.
+    const auth = usesApiKey
+      ? undefined
+      : yield* makeBobAuth({
+          instanceId,
+          settings: effectiveConfig,
+          cwd: paths.cwd,
+          environment: processEnv,
+          onSignedIn: recordSignIn("authenticated"),
+        });
+
+    const orchestrationAdapter = yield* makeBobAdapterV2Driver({
+      onSignInRequired: recordSignIn("unauthenticated"),
+      onSessionStarted: recordSignIn("authenticated"),
+    })
+      .create({
+        instanceId,
+        displayName,
+        accentColor,
+        environment,
+        enabled,
+        config: effectiveConfig,
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderDriverError({
+              driver: DRIVER_KIND,
+              instanceId,
+              detail: "Failed to build IBM Bob orchestration adapter.",
+              cause,
+            }),
+        ),
+      );
+
+    return {
+      instanceId,
+      driverKind: DRIVER_KIND,
+      continuationIdentity,
+      displayName,
+      accentColor,
+      enabled,
+      snapshot,
+      ...(auth ? { auth } : {}),
+      orchestrationAdapter,
+      textGeneration: unsupportedTextGeneration,
+    } satisfies ProviderInstance;
+  }),
+};

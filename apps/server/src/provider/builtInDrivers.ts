@@ -16,6 +16,8 @@ import type {
   ProviderUsageReaderEnv,
 } from "@t3tools/provider-core/server/driver";
 import { KiroDriver, type KiroDriverEnv } from "@t3tools/provider-kiro/server";
+// Fork: IBM Bob provider.
+import { BobDriver, type BobDriverEnv } from "@t3tools/provider-bob/server";
 
 export type BuiltInDriversEnv =
   | AcpRegistryDriverEnv
@@ -26,6 +28,7 @@ export type BuiltInDriversEnv =
   | FxDriverEnv
   | GrokDriverEnv
   | KiroDriverEnv
+  | BobDriverEnv // Fork: IBM Bob provider.
   | OpenCodeDriverEnv
   | PiDriverEnv
   | MuseDriverEnv;
@@ -39,6 +42,7 @@ export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv
   OpenCodeDriver,
   AntigravityDriver,
   KiroDriver,
+  BobDriver, // Fork: IBM Bob provider.
   PiDriver,
   MuseDriver,
   AcpRegistryDriver,

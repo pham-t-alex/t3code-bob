@@ -34,6 +34,8 @@ export interface ProviderAuthFlowContext {
     complete?: (callbackUrl: string) => Effect.Effect<void, ProviderSetupError>,
   ) => Effect.Effect<void>;
   readonly verifying: Effect.Effect<void>;
+  /** Fork: the provider opened the user's browser itself and has no link to show. */
+  readonly awaitingBrowser: Effect.Effect<void>;
 }
 
 const isSetupError = Schema.is(ProviderSetupError);
@@ -327,6 +329,12 @@ export const make = Effect.fn("ProviderAuthFlow.make")(function* (options: {
                   authorizationUrl: null,
                   message: "Checking provider sign-in.",
                 });
+              }),
+              awaitingBrowser: publish(flow, {
+                phase: "waiting",
+                interaction: null,
+                authorizationUrl: null,
+                message: "Finish signing in in your browser.",
               }),
             });
           }).pipe(
