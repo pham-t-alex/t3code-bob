@@ -43,6 +43,7 @@ Tests asserting these values are updated to match. A new upstream place that har
 - `packages/client-runtime/src/providerClients.ts`, `apps/server/src/policy/managedProviders.ts`: `bobClient`.
 - `packages/contracts/src/model.ts`: default model `default` and display name `IBM Bob`.
 - `packages/contracts/src/settings.ts`: `bob` in `DEFAULT_DISABLED_PROVIDER_DRIVERS`, matching the driver's `enabled: false` default.
+- `packages/provider-core/src/server/providerAuthFlow.ts`: `awaitingBrowser` on the sign-in context, for a provider that opens the browser itself and has no link to show (desktop Bob). The web client already words a waiting sign-in with no link as "Finish signing in in your browser." Its test is in `providerAuthFlow.test.ts`.
 - `apps/server/package.json`, `packages/client-runtime/package.json`, `pnpm-lock.yaml` (regenerate with `vp i` on conflict), the root `package.json` `knip:check:exports` list, and `scripts/release-smoke.ts`.
 
 **OS link scheme.** Bob registers `t3code-bob://` with the OS and never claims `t3code://`, so links meant for one app cannot open the other. The renderer origin stays `t3code://app`, which stock servers' CORS and T3 Connect expect; links are translated only at the OS boundary.
