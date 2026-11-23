@@ -25,7 +25,7 @@ Review every sync PR against this list: each item must survive the merge, and co
 | Data folder                                         | `~/.t3`              | `~/.t3-bob`              | `apps/desktop/src/app/DesktopStatePaths.ts`                                                                                           |
 | Electron profile                                    | `t3code-v2`          | `t3code-bob`             | `apps/desktop/src/app/DesktopUserData.ts`                                                                                             |
 | App ID                                              | `com.t3tools.t3code` | `com.t3tools.t3code.bob` | `scripts/build-desktop-artifact.ts`, `apps/desktop/src/app/DesktopEnvironment.ts`, `apps/desktop/scripts/electron-launcher.mjs`       |
-| Product name                                        | `T3 Code`            | `T3 Code Bob`            | `apps/desktop/package.json`, `APP_BASE_NAME` in `DesktopEnvironment.ts`, `scripts/build-desktop-artifact.ts`, `electron-launcher.mjs` |
+| Product name                                        | `T3 Code (Beta)`     | `T3 Code Bob (Beta)`     | `apps/desktop/package.json`, `APP_BASE_NAME` in `DesktopEnvironment.ts`, `scripts/build-desktop-artifact.ts`, `electron-launcher.mjs` |
 | Staged package name (install folder, updater cache) | `t3code`             | `t3code-bob`             | `stagePackageJson` in `scripts/build-desktop-artifact.ts`                                                                             |
 | SSH host runtime and data folder                    | `~/.t3`              | `~/.t3-bob`              | `REMOTE_T3_HOME_DIR` in `packages/ssh/src/tunnel.ts` (its tests use the constant)                                                     |
 
@@ -34,6 +34,7 @@ Tests asserting these values are updated to match. A new upstream place that har
 **Releases.** Pushing a tag `v<upstream version>-bob.<n>` (for example `v0.1.11-bob.1`; upstream tags a release before bumping `package.json`, so the tag names the upstream version) runs the fork-owned `.github/workflows/release-bob.yml`. It calls upstream's `release-desktop.yml` on GitHub-hosted runners, unsigned, and publishes the Apple Silicon and Intel `.dmg` plus server archives for macOS arm64 and Linux x64/arm64. Upstream's `release.yml` must stay disabled, since its tag filter matches these tags.
 
 - `CLI_RELEASE_REPOSITORY` in `packages/shared/src/cliRelease.ts` points SSH installs and `t3 update` at this repo (`apps/server/src/cli/update.test.ts` and `packages/ssh/src/tunnel.test.ts` assert it), and `RELEASES_URL` in `apps/desktop/src/app/DesktopStartupRecovery.ts` links to its releases.
+- `release-bob.yml` publishes the installers as `T3-Code-Bob-<version>-<arch>.dmg`; upstream names them `T3-Code-<version>-<arch>`.
 - `scripts/build-desktop-artifact.ts` leaves out the update feed for `-bob.<n>` versions: unsigned macOS builds cannot update in place and the release publishes no updater manifests, so the app's update checks stay off. `scripts/build-desktop-artifact.test.ts` asserts it.
 - The `-bob.<n>` suffix is what keeps an SSH host from running a stock `t3` of the same upstream version from its `PATH`.
 

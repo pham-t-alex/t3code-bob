@@ -210,7 +210,11 @@ jobs:
             echo "Expected an arm64 and an x64 .dmg, found: ${dmgs[*]:-none}" >&2
             exit 1
           fi
-          cp "${dmgs[@]}" release-assets/
+          # Upstream names installers T3-Code-<version>-<arch>; the published name says Bob.
+          for dmg in "${dmgs[@]}"; do
+            name="$(basename "$dmg")"
+            cp "$dmg" "release-assets/T3-Code-Bob-${name#T3-Code-}"
+          done
           cd release-assets
           archives=(t3-*.tar.gz)
           if [[ ${#archives[@]} -ne 3 ]]; then
