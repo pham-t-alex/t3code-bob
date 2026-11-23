@@ -4,7 +4,7 @@ import { ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts"
 import type * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
-import type * as Path from "effect/Path";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import type * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -36,6 +36,7 @@ import {
   isBobAuthRequired,
   makeBobAcpRuntime,
 } from "./acpSupport.ts";
+import { withBobContextUsage } from "./contextUsage.ts";
 
 const BOB_PROVIDER = ProviderDriverKind.make("bob");
 const DEFAULT_BOB_SETTINGS = Schema.decodeSync(BobSettings)({});
@@ -51,6 +52,8 @@ interface BobAdapterV2Options {
   readonly settings: BobSettings;
   readonly environment: NodeJS.ProcessEnv;
   readonly signIn: BobSignInObserver;
+  /** Bob's task database, where it keeps each task's context size. */
+  readonly databasePath: string;
   /** Replaces the `bob acp` launch in tests. */
   readonly makeRuntime?: AcpAdapterV2Flavor["makeRuntime"];
 }
@@ -74,6 +77,7 @@ export function makeBobAcpAdapterFlavor(options: BobAdapterV2Options): AcpAdapte
     capabilities: AcpProviderCapabilitiesV2,
     makeRuntime: (runtimeInput) =>
       (options.makeRuntime ?? launchBob)(runtimeInput).pipe(
+        Effect.flatMap((runtime) => withBobContextUsage(runtime, options.databasePath)),
         Effect.map((runtime) => ({
           ...runtime,
           start: () =>
@@ -116,6 +120,7 @@ export const makeBobAdapterV2Driver = (
       const hostEnvironment = yield* HostProcess.Environment;
       const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
       const makeNativeLogger = yield* makeAcpNativeLoggerFactory();
+      const path = yield* Path.Path;
       return yield* makeAcpAdapterV2({
         instanceId: input.instanceId,
         flavor: makeBobAcpAdapterFlavor({
@@ -123,6 +128,7 @@ export const makeBobAdapterV2Driver = (
           settings: { ...input.config, enabled: input.enabled },
           environment: yield* mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
           signIn,
+          databasePath: path.join(yield* HostProcess.HomeDirectory, ".bob", "db", "bob.db"),
         }),
         selfInvocation: yield* resolveSelfInvocation(),
         nativeLogging: (threadId) =>
