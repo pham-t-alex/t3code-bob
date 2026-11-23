@@ -535,8 +535,20 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
 
+      // Fork: unsigned Bob releases ship no update feed.
+      const bobRelease = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.1.11-bob.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+
       assert.isNull(preview.publish);
       assert.isNull(previewChannel.publish);
+      assert.isNull(bobRelease.publish);
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
