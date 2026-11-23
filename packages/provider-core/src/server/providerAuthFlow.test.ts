@@ -46,6 +46,31 @@ it.effect("distinguishes pending method discovery from an agent with no sign-in 
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
+// Fork: IBM Bob opens the browser itself and has no link to show.
+it.effect("waits on a sign-in the provider opened in the browser itself", () =>
+  Effect.gen(function* () {
+    const finished = yield* Deferred.make<void>();
+    const controller = yield* ProviderAuthFlow.make({
+      instanceId,
+      credentialBinding: { owner: "provider", key: "shared-agent" },
+      methods: Effect.succeed([method]),
+      authenticate: (_, context) =>
+        context.awaitingBrowser.pipe(Effect.andThen(Deferred.await(finished))),
+      logout: Effect.void,
+    });
+    yield* controller.start("owner");
+    const waiting = yield* controller.subscribe("owner").pipe(
+      Stream.filter((state) => state.phase === "waiting"),
+      Stream.runHead,
+      Effect.map(Option.getOrThrow),
+    );
+    assert.isNull(waiting.interaction);
+    assert.isNull(waiting.authorizationUrl);
+    assert.strictEqual(waiting.message, "Finish signing in in your browser.");
+    yield* Deferred.succeed(finished, undefined);
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+);
+
 const makeHarness = Effect.gen(function* () {
   const approved = yield* Deferred.make<void>();
   const verified = yield* Deferred.make<void>();

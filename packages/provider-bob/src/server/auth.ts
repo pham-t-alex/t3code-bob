@@ -77,6 +77,8 @@ export const makeBobAuth = Effect.fn("makeBobAuth")(function* (options: {
         "IBM Bob did not offer in-app sign-in. Run `bob` in a terminal on this machine to sign in, or add BOB_API_KEY.",
       );
     signingIn = true;
+    // On a desktop Bob opens the browser itself and logs no link; a link replaces this.
+    yield* context.awaitingBrowser;
     yield* runtime
       .authenticate(method.id)
       .pipe(
