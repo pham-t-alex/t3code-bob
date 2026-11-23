@@ -27,6 +27,7 @@ import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textG
 
 import { BobSettings } from "../settings.ts";
 import { type BobAdapterV2DriverEnv, makeBobAdapterV2Driver } from "./adapter.ts";
+import { bobUsageReader, type BobUsageReaderEnv } from "./usage.ts";
 import { makeBobAuth } from "./auth.ts";
 import {
   buildInitialBobProviderSnapshot,
@@ -62,12 +63,13 @@ const unsupportedTextGeneration: ProviderTextGeneration = (() => {
 
 export type BobDriverEnv = BobAdapterV2DriverEnv | ChildProcessSpawner.ChildProcessSpawner;
 
-export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
+export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv, BobUsageReaderEnv> = {
   driverKind: DRIVER_KIND,
   metadata: {
     displayName: "IBM Bob",
     supportsMultipleInstances: true,
   },
+  usage: bobUsageReader,
   configSchema: BobSettings,
   defaultConfig: (): BobSettings => decodeBobSettings({}),
   create: Effect.fn("BobDriver.create")(function* ({

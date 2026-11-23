@@ -93,6 +93,7 @@ export interface MergedUsage {
   readonly cacheCreationTokens: number;
   readonly outputTokens: number;
   readonly reasoningTokens: number;
+  readonly unsplitTokens: number;
   readonly totalTokens: number;
   readonly records: number;
   readonly sessions: number;
@@ -293,7 +294,8 @@ function bucketTokens(bucket: UsageBucket): number {
     bucket.totals.uncachedInputTokens +
     bucket.totals.cachedInputTokens +
     bucket.totals.cacheCreationTokens +
-    bucket.totals.outputTokens
+    bucket.totals.outputTokens +
+    (bucket.totals.unsplitTokens ?? 0)
   );
 }
 
@@ -308,6 +310,7 @@ const EMPTY_MERGED: MergedUsage = {
   cacheCreationTokens: 0,
   outputTokens: 0,
   reasoningTokens: 0,
+  unsplitTokens: 0,
   totalTokens: 0,
   records: 0,
   sessions: 0,
@@ -367,6 +370,7 @@ export function mergeUsage(
   let cacheCreationTokens = 0;
   let outputTokens = 0;
   let reasoningTokens = 0;
+  let unsplitTokens = 0;
   let records = 0;
   let sessions = 0;
   let cacheSavingsUsd = 0;
@@ -444,6 +448,7 @@ export function mergeUsage(
       cacheCreationTokens += bucket.totals.cacheCreationTokens;
       outputTokens += bucket.totals.outputTokens;
       reasoningTokens += bucket.totals.reasoningTokens;
+      unsplitTokens += bucket.totals.unsplitTokens ?? 0;
       records += bucket.records;
       unpricedRecords += bucket.unpricedRecords;
       if (bucket.costSource === "providerReported") providerReportedRecords += bucket.records;
@@ -492,6 +497,7 @@ export function mergeUsage(
         cacheCreationTokens: model.tokens.cacheCreationTokens + bucket.totals.cacheCreationTokens,
         outputTokens: model.tokens.outputTokens + bucket.totals.outputTokens,
         reasoningTokens: model.tokens.reasoningTokens + bucket.totals.reasoningTokens,
+        unsplitTokens: (model.tokens.unsplitTokens ?? 0) + (bucket.totals.unsplitTokens ?? 0),
       };
       model.records += bucket.records;
       model.unpricedRecords += bucket.unpricedRecords;
@@ -537,7 +543,8 @@ export function mergeUsage(
     }
   }
 
-  const totalTokens = uncachedInputTokens + cachedInputTokens + cacheCreationTokens + outputTokens;
+  const totalTokens =
+    uncachedInputTokens + cachedInputTokens + cacheCreationTokens + outputTokens + unsplitTokens;
 
   const providers: ProviderTotals[] = [...providerAccumulator.entries()]
     .map(([provider, totals]) => ({
@@ -586,6 +593,7 @@ export function mergeUsage(
     cacheCreationTokens,
     outputTokens,
     reasoningTokens,
+    unsplitTokens,
     totalTokens,
     records,
     sessions,

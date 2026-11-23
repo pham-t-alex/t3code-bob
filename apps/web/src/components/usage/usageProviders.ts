@@ -47,6 +47,13 @@ export const PROVIDER_PRESENTATION = {
     color: "#0866ff",
     driverKind: ProviderDriverKind.make("muse"),
   },
+  // Fork: IBM Bob.
+  bob: {
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- product name, shown as-is like the others
+    label: "IBM Bob",
+    color: "#6366f1",
+    driverKind: ProviderDriverKind.make("bob"),
+  },
 } satisfies Record<UsageProviderKind, UsageProviderPresentation>;
 
 export const PROVIDER_ORDER = Object.keys(PROVIDER_PRESENTATION) as UsageProviderKind[];
