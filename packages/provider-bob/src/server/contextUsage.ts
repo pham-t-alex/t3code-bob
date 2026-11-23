@@ -30,7 +30,6 @@ const readBobContextTokens = Effect.fn("readBobContextTokens")(function* (
       ? tokens
       : undefined;
   }).pipe(
-    NodeSqliteClient.readOnly,
     Effect.provide(NodeSqliteClient.layer({ filename: databasePath, readonly: true })),
     Effect.catchCause(() => Effect.undefined),
   );
