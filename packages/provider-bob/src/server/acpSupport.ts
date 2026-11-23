@@ -1,5 +1,10 @@
 import type * as EffectAcpSchema from "effect-acp/compat";
-import { type ProviderInstanceId, ProviderSetupError, type RuntimeMode } from "@t3tools/contracts";
+import {
+  type ModelSelection,
+  type ProviderInstanceId,
+  ProviderSetupError,
+  type RuntimeMode,
+} from "@t3tools/contracts";
 import type * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -21,6 +26,28 @@ export const BOB_SUPPORTED_RUNTIME_MODES = [
   "approval-required",
   "full-access",
 ] as const satisfies ReadonlyArray<RuntimeMode>;
+
+/** The composer's Bob mode option. */
+export const BOB_MODE_OPTION_ID = "mode";
+const BOB_DEFAULT_MODE = "agent";
+
+/**
+ * Bob saves a task's mode and keeps it on `session/resume`, so every session configure
+ * sets the picked mode, Agent when none is picked or the session no longer offers it.
+ */
+export const applyBobMode = Effect.fn("BobAcpSupport.applyBobMode")(function* (
+  runtime: AcpSessionRuntime.AcpSessionRuntime["Service"],
+  modelSelection: ModelSelection,
+): Effect.fn.Return<undefined, EffectAcpErrors.AcpError> {
+  const modeState = yield* runtime.getModeState;
+  if (modeState === undefined) return undefined;
+  const offered = (id: unknown): id is string =>
+    modeState.availableModes.some((mode) => mode.id === id);
+  const picked = modelSelection.options?.find((option) => option.id === BOB_MODE_OPTION_ID)?.value;
+  const target = offered(picked) ? picked : BOB_DEFAULT_MODE;
+  if (offered(target)) yield* runtime.setMode(target);
+  return undefined;
+});
 
 /**
  * Bob approves on its own (`--auto-approve`) only for an unrestricted Full access

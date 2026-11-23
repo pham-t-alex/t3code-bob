@@ -25,7 +25,7 @@ import {
 } from "@t3tools/provider-core/server/snapshotProbe";
 
 import type { BobSettings } from "../settings.ts";
-import { BOB_SUPPORTED_RUNTIME_MODES } from "./acpSupport.ts";
+import { BOB_MODE_OPTION_ID, BOB_SUPPORTED_RUNTIME_MODES } from "./acpSupport.ts";
 
 const BOB_DRIVER_KIND = ProviderDriverKind.make("bob");
 const BOB_PRESENTATION = {
@@ -34,10 +34,23 @@ const BOB_PRESENTATION = {
   showInteractionModeToggle: true,
   supportedRuntimeModes: BOB_SUPPORTED_RUNTIME_MODES,
 } as const;
-const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({ optionDescriptors: [] });
+const BOB_CAPABILITIES: ModelCapabilities = createModelCapabilities({
+  optionDescriptors: [
+    {
+      id: BOB_MODE_OPTION_ID,
+      label: "Mode",
+      type: "select",
+      options: [
+        { id: "agent", label: "Agent", isDefault: true },
+        { id: "plan", label: "Plan" },
+        { id: "ask", label: "Ask" },
+      ],
+    },
+  ],
+});
 // Bob picks its own model and does not support `session/set_model`.
 const BOB_MODELS: ReadonlyArray<ServerProviderModel> = [
-  { slug: "default", name: "Bob", isCustom: false, capabilities: EMPTY_CAPABILITIES },
+  { slug: "default", name: "Bob", isCustom: false, capabilities: BOB_CAPABILITIES },
 ];
 const VERSION_PROBE_TIMEOUT_MS = 10_000;
 

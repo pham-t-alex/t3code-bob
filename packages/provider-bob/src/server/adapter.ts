@@ -27,6 +27,8 @@ import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 
 import { BobSettings } from "../settings.ts";
 import {
+  applyBobMode,
+  BOB_MODE_OPTION_ID,
   bobAutoApproves,
   bobPermissionDisposition,
   bobSetupRefusal,
@@ -49,21 +51,29 @@ interface BobAdapterV2Options {
   readonly settings: BobSettings;
   readonly environment: NodeJS.ProcessEnv;
   readonly signIn: BobSignInObserver;
+  /** Replaces the `bob acp` launch in tests. */
+  readonly makeRuntime?: AcpAdapterV2Flavor["makeRuntime"];
 }
 
-function makeBobAcpAdapterFlavor(options: BobAdapterV2Options): AcpAdapterV2Flavor {
+export function makeBobAcpAdapterFlavor(options: BobAdapterV2Options): AcpAdapterV2Flavor {
+  // `--auto-approve` is fixed at launch; a runtime-mode change restarts and resumes the session.
+  const launchBob: AcpAdapterV2Flavor["makeRuntime"] = ({
+    runtimePolicy,
+    processEnvironment,
+    ...input
+  }) =>
+    makeBobAcpRuntime({
+      ...input,
+      settings: options.settings,
+      autoApprove: bobAutoApproves(runtimePolicy),
+      environment: { ...options.environment, ...processEnvironment },
+    });
   return {
     driver: BOB_PROVIDER,
     runtimeHarness: "Bob",
     capabilities: AcpProviderCapabilitiesV2,
-    // `--auto-approve` is fixed at launch; a runtime-mode change restarts and resumes the session.
-    makeRuntime: ({ runtimePolicy, processEnvironment, ...input }) =>
-      makeBobAcpRuntime({
-        ...input,
-        settings: options.settings,
-        autoApprove: bobAutoApproves(runtimePolicy),
-        environment: { ...options.environment, ...processEnvironment },
-      }).pipe(
+    makeRuntime: (runtimeInput) =>
+      (options.makeRuntime ?? launchBob)(runtimeInput).pipe(
         Effect.map((runtime) => ({
           ...runtime,
           start: () =>
@@ -79,6 +89,9 @@ function makeBobAcpAdapterFlavor(options: BobAdapterV2Options): AcpAdapterV2Flav
     // Also ends retries for a trust or license refusal, which only the user can clear.
     requiresSignIn: (cause) => isBobAuthRequired(cause) || bobSetupRefusal(cause) !== undefined,
     permissionDisposition: bobPermissionDisposition,
+    // Bob has no model choice (`session/set_model` is unsupported); its selection carries the mode.
+    applyModelSelection: ({ runtime, modelSelection }) => applyBobMode(runtime, modelSelection),
+    ownedModelOptionIds: [BOB_MODE_OPTION_ID],
   };
 }
 
