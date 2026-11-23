@@ -261,6 +261,21 @@ describe("UsageAggregator", () => {
     expect(result.buckets[0]?.costSource).toBe("unpriced");
     expect(result.buckets[0]?.unpricedRecords).toBe(1);
     expect(result.buckets[0]?.totals.outputTokens).toBe(50);
+
+    const totalOnly = {
+      uncachedInputTokens: 0,
+      cachedInputTokens: 0,
+      cacheCreationTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      unsplitTokens: 700,
+    };
+    const unsplit = aggregate([
+      record({ model: "kimi-k3", totals: totalOnly }),
+      record({ model: "kimi-k3", totals: totalOnly }),
+    ]);
+    expect(unsplit.buckets[0]?.totals.unsplitTokens).toBe(1400);
+    expect(unsplit.buckets[0]?.unpricedTokens).toBe(1400);
   });
 
   it("prefers a reported cost over the rate table", () => {
