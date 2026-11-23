@@ -51,7 +51,7 @@ export const PROVIDER_PRESENTATION = {
   bob: {
     // oxlint-disable-next-line t3code/no-untranslated-copy -- product name, shown as-is like the others
     label: "IBM Bob",
-    color: "#d4a72c",
+    color: "#6366f1",
     driverKind: ProviderDriverKind.make("bob"),
   },
 } satisfies Record<UsageProviderKind, UsageProviderPresentation>;

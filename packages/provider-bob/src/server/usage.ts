@@ -42,11 +42,6 @@ function bobRecord(input: {
   };
 }
 
-const REQUIRED_COLUMNS = {
-  tasks: ["id", "parent_id", "costs", "updated_at"],
-  messages: ["id", "task_id", "role", "data", "created_at"],
-} as const;
-
 export interface BobUsageReadResult {
   readonly records: readonly UsageRecord[];
   readonly missing: boolean;
@@ -67,20 +62,11 @@ export const readBobUsage = Effect.fn("readBobUsage")(function* (
   if (!(yield* fileSystem.exists(databasePath).pipe(Effect.orElseSucceed(() => false)))) {
     return { records: [], missing: true, error: false };
   }
+  // An unknown schema fails a query, which reports the source as partial.
   return yield* Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     // Fail promptly on Bob's write locks instead of stalling the server.
     yield* sql.unsafe("PRAGMA busy_timeout = 100");
-    for (const [table, required] of Object.entries(REQUIRED_COLUMNS)) {
-      const columns = new Set(
-        (yield* sql.unsafe<{ readonly name: unknown }>(`PRAGMA table_info(${table})`)).map(
-          (row) => row.name,
-        ),
-      );
-      if (!required.every((column) => columns.has(column))) {
-        return { records: [], missing: false, error: true };
-      }
-    }
     const records: UsageRecord[] = [];
     const responses = yield* sql.unsafe<{
       readonly id: unknown;

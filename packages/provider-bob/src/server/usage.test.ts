@@ -55,15 +55,17 @@ describe("readBobUsage", () => {
     Effect.gen(function* () {
       const filename = yield* writeDatabase([
         ...BOB_SCHEMA,
-        // Root total 0.03 = responses 0.01 + 0.015 + a subagent's 0.005 (no response rows).
-        task("root", null, 0.03, NOW),
+        // Root total 0.05 = an earlier response 0.02 (outside the window) + responses 0.01
+        // and 0.015 + a subagent's 0.005, which has no response rows.
+        task("root", null, 0.05, NOW),
         task("child", "root", 0.005, NOW),
+        message("old-reply", "root", "assistant", NOW - 10 * DAY, 0.02),
         message("user-1", "root", "user", NOW - 3_000),
         message("reply-1", "root", "assistant", NOW - 2_000, 0.01),
         message("reply-2", "root", "assistant", NOW - 1_000, 0.015),
-        // Outside the window: no record of its own, but still not counted again as rest.
+        // Last updated before the window: none of its spend is in range.
         task("old", null, 0.02, NOW - 10 * DAY),
-        message("old-reply", "old", "assistant", NOW - 10 * DAY, 0.02),
+        message("old-task-reply", "old", "assistant", NOW - 10 * DAY, 0.02),
       ]);
       const result = yield* readBobUsage(filename, NOW - DAY);
       assert.deepEqual(result.missing || result.error, false);
