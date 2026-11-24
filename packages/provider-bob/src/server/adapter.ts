@@ -34,6 +34,7 @@ import {
   bobSetupRefusal,
   explainBobSetupRefusal,
   isBobAuthRequired,
+  isBobModeRefusal,
   makeBobAcpRuntime,
 } from "./acpSupport.ts";
 import { withBobContextUsage } from "./contextUsage.ts";
@@ -90,11 +91,13 @@ export function makeBobAcpAdapterFlavor(options: BobAdapterV2Options): AcpAdapte
             ),
         })),
       ),
-    // Also ends retries for a trust or license refusal, which only the user can clear.
-    requiresSignIn: (cause) => isBobAuthRequired(cause) || bobSetupRefusal(cause) !== undefined,
+    // Also ends retries for a trust, license or mode refusal, which only the user can clear.
+    requiresSignIn: (cause) =>
+      isBobAuthRequired(cause) || bobSetupRefusal(cause) !== undefined || isBobModeRefusal(cause),
     permissionDisposition: bobPermissionDisposition,
     // Bob has no model choice (`session/set_model` is unsupported); its selection carries the mode.
-    applyModelSelection: ({ runtime, modelSelection }) => applyBobMode(runtime, modelSelection),
+    applyModelSelection: ({ runtime, modelSelection }) =>
+      applyBobMode(options.instanceId, runtime, modelSelection),
     ownedModelOptionIds: [BOB_MODE_OPTION_ID],
   };
 }

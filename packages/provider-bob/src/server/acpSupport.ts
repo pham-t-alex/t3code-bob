@@ -29,23 +29,51 @@ export const BOB_SUPPORTED_RUNTIME_MODES = [
 
 /** The composer's Bob mode option. */
 export const BOB_MODE_OPTION_ID = "mode";
-const BOB_DEFAULT_MODE = "agent";
+export const BOB_DEFAULT_MODE = "agent";
+const MODE_REFUSAL = "IBM Bob does not offer the mode";
+
+/** T3's own refusal of a picked mode, which a retry cannot fix. */
+export function isBobModeRefusal(cause: unknown): boolean {
+  if (typeof cause !== "object" || cause === null) return false;
+  const { _tag, errorMessage } = cause as {
+    readonly _tag?: unknown;
+    readonly errorMessage?: unknown;
+  };
+  return (
+    _tag === "AcpRequestError" &&
+    typeof errorMessage === "string" &&
+    errorMessage.startsWith(MODE_REFUSAL)
+  );
+}
 
 /**
  * Bob saves a task's mode and keeps it on `session/resume`, so every session configure
- * sets the picked mode, Agent when none is picked or the session no longer offers it.
+ * sets the picked mode, Agent when none is picked. A picked mode the session does not
+ * offer, such as a custom mode Bob could not load, fails the turn instead of running in Agent.
  */
 export const applyBobMode = Effect.fn("BobAcpSupport.applyBobMode")(function* (
+  instanceId: ProviderInstanceId,
   runtime: AcpSessionRuntime.AcpSessionRuntime["Service"],
   modelSelection: ModelSelection,
 ): Effect.fn.Return<undefined, EffectAcpErrors.AcpError> {
   const modeState = yield* runtime.getModeState;
   if (modeState === undefined) return undefined;
-  const offered = (id: unknown): id is string =>
-    modeState.availableModes.some((mode) => mode.id === id);
+  const offered = (id: string) => modeState.availableModes.some((mode) => mode.id === id);
   const picked = modelSelection.options?.find((option) => option.id === BOB_MODE_OPTION_ID)?.value;
-  const target = offered(picked) ? picked : BOB_DEFAULT_MODE;
-  if (offered(target)) yield* runtime.setMode(target);
+  const target = typeof picked === "string" ? picked : BOB_DEFAULT_MODE;
+  if (offered(target)) {
+    yield* runtime.setMode(target);
+  } else if (target !== BOB_DEFAULT_MODE) {
+    return yield* new EffectAcpErrors.AcpRequestError({
+      code: -32600,
+      errorMessage: `${MODE_REFUSAL} "${target}" here.`,
+      cause: new ProviderSetupError({
+        instanceId,
+        operation: "openSession",
+        detail: `IBM Bob does not offer the mode "${target}" in this folder. Check its custom modes file, or pick another mode.`,
+      }),
+    });
+  }
   return undefined;
 });
 

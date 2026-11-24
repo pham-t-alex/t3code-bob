@@ -38,7 +38,9 @@ import {
   readBobUsageLimits,
 } from "./usage.ts";
 import { makeBobAuth } from "./auth.ts";
+import { discoverBobCatalog } from "./discovery.ts";
 import {
+  bobModels,
   buildInitialBobProviderSnapshot,
   checkBobProviderStatus,
   readCachedBobSignIn,
@@ -119,8 +121,25 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv, BobUsageReader
         : "unknown",
     );
     const monthlyBobcoins = Number(effectiveConfig.monthlyBobcoinLimit);
-    const databasePath = bobDatabasePath(yield* Path.Path, yield* HostProcess.HomeDirectory);
+    const homeDirectory = yield* HostProcess.HomeDirectory;
+    const path = yield* Path.Path;
+    const databasePath = bobDatabasePath(path, homeDirectory);
     const fileSystem = yield* FileSystem.FileSystem;
+    const discoverCatalog = (cwd?: string) =>
+      discoverBobCatalog(homeDirectory, cwd).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      );
+    const withGlobalCatalog = (draft: ServerProviderDraft) =>
+      effectiveConfig.enabled
+        ? discoverCatalog().pipe(
+            Effect.map((catalog) => ({
+              ...draft,
+              models: bobModels(catalog.modes),
+              slashCommands: catalog.skills,
+            })),
+          )
+        : Effect.succeed(draft);
     const withMonthlyLimit = (draft: ServerProviderDraft) =>
       effectiveConfig.enabled && monthlyBobcoins > 0
         ? Clock.currentTimeMillis.pipe(
@@ -142,6 +161,7 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv, BobUsageReader
           Ref.get(signIn).pipe(Effect.map((state) => withBobSignIn(draft, state, usesApiKey))),
         ),
         Effect.flatMap(withMonthlyLimit),
+        Effect.flatMap(withGlobalCatalog),
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       ),
@@ -210,6 +230,22 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv, BobUsageReader
       accentColor,
       enabled,
       snapshot,
+      // A project's `.bob` folder adds its own skills and custom modes to the global ones.
+      snapshotForCwd: (cwd) =>
+        !effectiveConfig.enabled
+          ? snapshot.getSnapshot
+          : Effect.all([snapshot.getSnapshot, discoverCatalog(cwd)]).pipe(
+              Effect.map(([machineSnapshot, catalog]) => {
+                const models = bobModels(catalog.modes);
+                return {
+                  ...machineSnapshot,
+                  slashCommands: catalog.skills,
+                  ...(JSON.stringify(models) === JSON.stringify(machineSnapshot.models)
+                    ? {}
+                    : { models, workspaceModels: models }),
+                };
+              }),
+            ),
       ...(auth ? { auth } : {}),
       orchestrationAdapter,
       textGeneration: unsupportedTextGeneration,

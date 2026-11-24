@@ -17,8 +17,10 @@ import {
 } from "@t3tools/contracts";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -143,51 +145,58 @@ const runBobSession = (options: {
     });
     const now = yield* DateTime.now;
     const contextTokens: Array<number | undefined> = [];
+    const failures: Array<string> = [];
     for (const [index, pick] of options.picks.entries()) {
       const ordinal = index + 1;
       const suffix = `${threadId}:${ordinal}`;
       const modelSelection = selection(pick);
-      yield* runtime.startTurn({
-        appThread: {
-          createdBy: "user",
-          creationSource: "web",
-          id: threadId,
-          projectId: ProjectId.make("bob-modes-project"),
-          title: "Bob modes",
-          providerInstanceId: instanceId,
+      const started = yield* runtime
+        .startTurn({
+          appThread: {
+            createdBy: "user",
+            creationSource: "web",
+            id: threadId,
+            projectId: ProjectId.make("bob-modes-project"),
+            title: "Bob modes",
+            providerInstanceId: instanceId,
+            modelSelection,
+            runtimeMode: RUNTIME_MODE,
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            activeProviderThreadId: providerThread.id,
+            lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+            forkedFrom: null,
+            createdAt: now,
+            updatedAt: now,
+            archivedAt: null,
+            settledOverride: null,
+            settledAt: null,
+            lastVisitedAt: null,
+            deletedAt: null,
+          },
+          threadId,
+          runId: RunId.make(`run:${suffix}`),
+          runOrdinal: ordinal,
+          providerTurnOrdinal: ordinal,
+          attemptId: RunAttemptId.make(`attempt:${suffix}`),
+          rootNodeId: NodeId.make(`node:${suffix}`),
+          providerThread,
+          message: {
+            createdBy: "user",
+            creationSource: "web",
+            messageId: MessageId.make(`message:${suffix}`),
+            text: "hello",
+            attachments: [],
+          },
           modelSelection,
-          runtimeMode: RUNTIME_MODE,
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
-          activeProviderThreadId: providerThread.id,
-          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
-          forkedFrom: null,
-          createdAt: now,
-          updatedAt: now,
-          archivedAt: null,
-          settledOverride: null,
-          settledAt: null,
-          lastVisitedAt: null,
-          deletedAt: null,
-        },
-        threadId,
-        runId: RunId.make(`run:${suffix}`),
-        runOrdinal: ordinal,
-        providerTurnOrdinal: ordinal,
-        attemptId: RunAttemptId.make(`attempt:${suffix}`),
-        rootNodeId: NodeId.make(`node:${suffix}`),
-        providerThread,
-        message: {
-          createdBy: "user",
-          creationSource: "web",
-          messageId: MessageId.make(`message:${suffix}`),
-          text: "hello",
-          attachments: [],
-        },
-        modelSelection,
-        runtimePolicy,
-      });
+          runtimePolicy,
+        })
+        .pipe(Effect.exit);
+      if (Exit.isFailure(started)) {
+        failures.push(Cause.pretty(started.cause));
+        continue;
+      }
       contextTokens.push(
         yield* runtime.events.pipe(
           Stream.takeUntil((event) => event.type === "turn.terminal"),
@@ -205,7 +214,7 @@ const runBobSession = (options: {
       .split("\n")
       .filter((line) => line.trim().length > 0)
       .map((line) => decodeFixtureEvent(line));
-    return { wire, contextTokens };
+    return { wire, contextTokens, failures };
   }).pipe(Effect.scoped, Effect.provide(layerTest));
 
 describe("Bob modes", () => {
@@ -222,6 +231,21 @@ describe("Bob modes", () => {
         { event: "session/set_mode", modeId: "agent" },
         { event: "prompt", mode: "agent" },
       ]);
+    }),
+  );
+
+  it.live("never prompts in another mode when Bob does not offer the picked one", () =>
+    Effect.gen(function* () {
+      const { wire, failures } = yield* runBobSession({
+        picks: [undefined, "removed-custom-mode"],
+      });
+      assert.deepEqual(wire, [{ event: "session/new" }, { event: "prompt", mode: "agent" }]);
+      assert.lengthOf(failures, 1);
+      assert.include(failures[0], 'IBM Bob does not offer the mode "removed-custom-mode"');
+      // On a session's first turn the refusal ends the open retries, which cannot fix it.
+      const opened = yield* Effect.flip(runBobSession({ picks: ["removed-custom-mode"] }));
+      assert.equal(opened._tag, "ProviderAdapterOpenSessionError");
+      assert.equal("requiresSignIn" in opened && opened.requiresSignIn, true);
     }),
   );
 
