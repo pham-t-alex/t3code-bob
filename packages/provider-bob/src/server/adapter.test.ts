@@ -142,7 +142,7 @@ const runBobSession = (options: {
       runtimePolicy,
     });
     const now = yield* DateTime.now;
-    const contextTokens: Array<number | undefined> = [];
+    const contextTokens: Array<readonly [used: number, max: number | undefined] | undefined> = [];
     for (const [index, pick] of options.picks.entries()) {
       const ordinal = index + 1;
       const suffix = `${threadId}:${ordinal}`;
@@ -192,11 +192,12 @@ const runBobSession = (options: {
         yield* runtime.events.pipe(
           Stream.takeUntil((event) => event.type === "turn.terminal"),
           Stream.runFold(
-            (): number | undefined => undefined,
-            (tokens, event) =>
-              event.type === "provider_thread.updated"
-                ? event.providerThread.contextUsage?.usedTokens
-                : tokens,
+            (): readonly [number, number | undefined] | undefined => undefined,
+            (tokens, event) => {
+              if (event.type !== "provider_thread.updated") return tokens;
+              const usage = event.providerThread.contextUsage;
+              return usage == null ? undefined : ([usage.usedTokens, usage.maxTokens] as const);
+            },
           ),
         ),
       );
@@ -245,7 +246,10 @@ describe("Bob context usage", () => {
   it.live("shows the context size Bob saved for the task after each turn", () =>
     Effect.gen(function* () {
       const withTask = yield* runBobSession({ picks: [undefined, undefined], withTask: true });
-      assert.deepEqual(withTask.contextTokens, [4_000, 8_000]);
+      assert.deepEqual(withTask.contextTokens, [
+        [4_000, 270_000],
+        [8_000, 270_000],
+      ]);
       // No database, as before Bob's first task: the row stays empty.
       const withoutTask = yield* runBobSession({ picks: [undefined] });
       assert.deepEqual(withoutTask.contextTokens, [undefined]);
