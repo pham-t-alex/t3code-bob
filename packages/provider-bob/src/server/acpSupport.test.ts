@@ -13,7 +13,7 @@ import {
   buildBobAcpSpawnInput,
   explainBobSetupRefusal,
 } from "./acpSupport.ts";
-import { makeBobLoginUrlReader } from "./auth.ts";
+import { bobLoginCallback, makeBobLoginUrlReader, matchBobRedirect } from "./auth.ts";
 import { cachedBobSignIn, withBobSignIn } from "./status.ts";
 
 const editRequest = {
@@ -72,6 +72,33 @@ describe("Bob sign-in", () => {
     assert.equal(
       read("mple.test/auth?state=a&b=c, then return.\n"),
       "https://login.example.test/auth?state=a&b=c",
+    );
+  });
+
+  it("returns a pasted redirect only to the sign-in's own loopback callback", () => {
+    const callback = bobLoginCallback(
+      `https://login.example.test/login?callback_uri=${encodeURIComponent("http://127.0.0.1:41733/bob-callback")}&state=s1`,
+    );
+    assert.equal(callback?.href, "http://127.0.0.1:41733/bob-callback");
+    assert.equal(
+      matchBobRedirect(" http://127.0.0.1:41733/bob-callback?code=c1&state=s1 ", callback!)?.href,
+      "http://127.0.0.1:41733/bob-callback?code=c1&state=s1",
+    );
+    for (const pasted of [
+      "http://127.0.0.1:41734/bob-callback?code=c1",
+      "http://127.0.0.1:41733/other?code=c1",
+      "http://evil.example.test:41733/bob-callback?code=c1",
+      "not a url",
+    ]) {
+      assert.equal(matchBobRedirect(pasted, callback!), undefined, pasted);
+    }
+    // A link without a loopback callback offers no paste-back.
+    assert.equal(bobLoginCallback("https://login.example.test/login?state=s1"), undefined);
+    assert.equal(
+      bobLoginCallback(
+        `https://login.example.test/login?callback_uri=${encodeURIComponent("https://evil.example.test/cb")}`,
+      ),
+      undefined,
     );
   });
 });
