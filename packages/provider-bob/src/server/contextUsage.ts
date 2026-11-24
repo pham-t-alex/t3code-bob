@@ -8,6 +8,9 @@ import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSession
 type BobRuntime = AcpSessionRuntime.AcpSessionRuntime["Service"];
 type SessionUpdateHandler = Parameters<BobRuntime["handleSessionUpdate"]>[0];
 
+// Bob's maximum context; Bob neither reports nor stores it.
+const BOB_CONTEXT_WINDOW_TOKENS = 270_000;
+
 /**
  * The context size of a task's latest response, which Bob keeps in `tasks.costs`, read without
  * writing to `bob.db`. Undefined when the task, the database or the value is not there.
@@ -37,7 +40,7 @@ const readBobContextTokens = Effect.fn("readBobContextTokens")(function* (
 
 /**
  * Bob sends no `usage_update`, so after each prompt this reads the session's context size from
- * `bob.db` and hands the adapter's update handlers one. Bob reports no window size.
+ * `bob.db` and hands the adapter's update handlers one.
  */
 export const withBobContextUsage = Effect.fn("withBobContextUsage")(function* (
   runtime: BobRuntime,
@@ -55,7 +58,10 @@ export const withBobContextUsage = Effect.fn("withBobContextUsage")(function* (
     const used = yield* readBobContextTokens(databasePath, id);
     if (used === undefined) return;
     for (const handler of yield* Ref.get(handlers)) {
-      yield* handler({ sessionId: id, update: { sessionUpdate: "usage_update", used, size: 0 } });
+      yield* handler({
+        sessionId: id,
+        update: { sessionUpdate: "usage_update", used, size: BOB_CONTEXT_WINDOW_TOKENS },
+      });
     }
   }).pipe(Effect.ignore);
   return {
