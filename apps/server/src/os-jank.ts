@@ -245,10 +245,13 @@ export const expandHomePath = Effect.fn(function* (input: string) {
   return input;
 });
 
+// Fork: T3 Code Bob's home, so a hand-run or boot-service server shares the SSH launcher's.
+export const DEFAULT_HOME_DIR_NAME = ".t3-bob";
+
 export const resolveBaseDir = Effect.fn(function* (raw: string | undefined) {
   const { join, resolve } = yield* Path.Path;
   if (!raw || raw.trim().length === 0) {
-    return join(yield* HostProcess.HomeDirectory, ".t3");
+    return join(yield* HostProcess.HomeDirectory, DEFAULT_HOME_DIR_NAME);
   }
   return resolve(yield* expandHomePath(raw.trim()));
 });
