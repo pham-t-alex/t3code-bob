@@ -23,7 +23,7 @@ Review every sync PR against this list: each item must survive the merge, and co
 
 | Value                                               | Upstream             | Fork                     | Where                                                                                                                                 |
 | --------------------------------------------------- | -------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Data folder                                         | `~/.t3`              | `~/.t3-bob`              | `apps/desktop/src/app/DesktopStatePaths.ts`                                                                                           |
+| Data folder                                         | `~/.t3`              | `~/.t3-bob`              | `apps/desktop/src/app/DesktopStatePaths.ts`, `DEFAULT_HOME_DIR_NAME` in `apps/server/src/os-jank.ts` (server and CLI)                 |
 | Electron profile                                    | `t3code-v2`          | `t3code-bob`             | `apps/desktop/src/app/DesktopUserData.ts`                                                                                             |
 | App ID                                              | `com.t3tools.t3code` | `com.t3tools.t3code.bob` | `scripts/build-desktop-artifact.ts`, `apps/desktop/src/app/DesktopEnvironment.ts`, `apps/desktop/scripts/electron-launcher.mjs`       |
 | Product name                                        | `T3 Code (Beta)`     | `T3 Code Bob (Beta)`     | `apps/desktop/package.json`, `APP_BASE_NAME` in `DesktopEnvironment.ts`, `scripts/build-desktop-artifact.ts`, `electron-launcher.mjs` |
@@ -38,6 +38,7 @@ Tests asserting these values are updated to match. A new upstream place that har
 - `release-bob.yml` publishes the installers as `T3-Code-Bob-<version>-<arch>.dmg`; upstream names them `T3-Code-<version>-<arch>`.
 - `scripts/build-desktop-artifact.ts` leaves out the update feed for `-bob.<n>` versions: unsigned macOS builds cannot update in place and the release publishes no updater manifests, so the app's update checks stay off. `scripts/build-desktop-artifact.test.ts` asserts it.
 - The `-bob.<n>` suffix is what keeps an SSH host from running a stock `t3` of the same upstream version from its `PATH`.
+- The server the app starts on an SSH host stops when the app disconnects or quits. To keep one running, connect once so the host gets the server, disconnect, run `~/.t3-bob/runtime/versions/<version>/t3 service install` on the host, and reconnect once that same binary's `service status` shows it running. The app then uses the service and leaves it running.
 
 **IBM Bob provider.** The `bob` driver lives in fork-owned `packages/provider-bob`, built on the shared ACP adapter. The plan is [issue #1](https://github.com/pham-t-alex/t3code-bob/issues/1). Upstream files register it next to Kiro, each edit marked `Fork:` where the format allows comments:
 
@@ -66,7 +67,6 @@ Still shared with stock T3 Code, on purpose:
 - On first launch, Bob imports once from a legacy V1 profile (`T3 Code (Alpha)` or `t3code`) if one exists: UI local storage on every platform, plus Chromium's `Local State` on Windows. Never the database, and never the current `t3code-v2` profile.
 - `t3code://` links made outside Bob (prompt links from app.t3.codes, pairing links printed for the mobile app) open stock T3 Code, not Bob.
 - The `t3` shell command resolves to whichever install is first on `PATH`. `scripts/install.sh` installs stock T3 Code into `~/.t3`; Bob's server reaches a host through its release archives and the SSH launcher.
-- Running the Bob server binary by hand without `--base-dir` defaults to `~/.t3`, like stock. The SSH launcher always passes `~/.t3-bob`.
-- The background boot service (`t3code`) and MDM policy identifiers.
-- A WSL backend's data in the distro's `~/.t3`.
+- The background boot service (`t3code`) and MDM policy identifiers. Bob's `t3 service install` serves `~/.t3-bob`, where the SSH launcher finds it, but there is one service per user, so it refuses while stock T3 Code's is installed.
+- A WSL backend's runtime in the distro's `~/.t3/wsl-runtime`. Its data is in the distro's `~/.t3-bob`, the server's default home.
 - Mobile app, hosted web app, and marketing identifiers. The fork does not ship those.
