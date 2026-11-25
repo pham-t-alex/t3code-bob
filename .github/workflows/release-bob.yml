@@ -98,6 +98,7 @@ jobs:
       label: macOS arm64
       runner: macos-15
       platform: mac
+      xcode_version: "26.3"
       target: dmg
       arch: arm64
       rust_target: aarch64-apple-darwin
@@ -123,6 +124,7 @@ jobs:
       # Native Intel: under Rosetta the server compile cache step can exceed its 120 s limit.
       runner: macos-15-intel
       platform: mac
+      xcode_version: "26.3"
       target: dmg
       arch: x64
       rust_target: x86_64-apple-darwin
