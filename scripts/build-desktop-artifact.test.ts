@@ -535,8 +535,20 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
 
+      // Fork: unsigned Bob releases ship no update feed.
+      const bobRelease = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.1.11-bob.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+
       assert.isNull(preview.publish);
       assert.isNull(previewChannel.publish);
+      assert.isNull(bobRelease.publish);
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
@@ -1565,7 +1577,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     });
 
     assert.deepStrictEqual(configuration, {
-      appId: "com.t3tools.t3code",
+      appId: "com.t3tools.t3code.bob",
       teamId: "ABC1234567",
       rpDomains: ["example.clerk.accounts.dev"],
       provisioningProfilePath: "/tmp/t3code.provisionprofile",
@@ -1588,7 +1600,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "clerk.example.com",
       "example.clerk.accounts.dev",
     ]);
-    assert.include(entitlements, "<string>ABC1234567.com.t3tools.t3code</string>");
+    assert.include(entitlements, "<string>ABC1234567.com.t3tools.t3code.bob</string>");
     assert.include(entitlements, "<string>webcredentials:clerk.example.com</string>");
     assert.include(entitlements, "<string>webcredentials:example.clerk.accounts.dev</string>");
     assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");

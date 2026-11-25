@@ -40,7 +40,8 @@ export function totalTokens(totals: UsageTokenTotals): number {
     totals.uncachedInputTokens +
     totals.cachedInputTokens +
     totals.cacheCreationTokens +
-    totals.outputTokens
+    totals.outputTokens +
+    (totals.unsplitTokens ?? 0)
   );
 }
 

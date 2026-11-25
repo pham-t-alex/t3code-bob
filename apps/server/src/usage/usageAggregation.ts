@@ -9,7 +9,7 @@ import type {
   UsageTokenTotals,
 } from "@t3tools/contracts";
 
-import { EMPTY_TOTALS, type UsageRecord } from "@t3tools/provider-core/server/usage";
+import { EMPTY_TOTALS, totalTokens, type UsageRecord } from "@t3tools/provider-core/server/usage";
 import { cacheSavingsUsd, lookupRate, priceUsage, type RateTable } from "./usagePricing.ts";
 
 // en-CA gives ISO-ordered parts in the requested zone; Date getters are host-local.
@@ -175,6 +175,7 @@ export function mergeUsageCopies(held: UsageRecord, copy: UsageRecord): UsageRec
     b.cacheCreationTokens <= a.cacheCreationTokens &&
     b.outputTokens <= a.outputTokens &&
     b.reasoningTokens <= a.reasoningTokens &&
+    (b.unsplitTokens ?? 0) <= (a.unsplitTokens ?? 0) &&
     (copy.cacheCreation1hTokens ?? 0) <= (held.cacheCreation1hTokens ?? 0) &&
     reportedCostUsd === held.reportedCostUsd
   ) {
@@ -184,6 +185,7 @@ export function mergeUsageCopies(held: UsageRecord, copy: UsageRecord): UsageRec
     held.cacheCreation1hTokens ?? 0,
     copy.cacheCreation1hTokens ?? 0,
   );
+  const unsplitTokens = Math.max(a.unsplitTokens ?? 0, b.unsplitTokens ?? 0);
   return {
     ...held,
     ...(cacheCreation1hTokens > 0 ? { cacheCreation1hTokens } : {}),
@@ -193,6 +195,7 @@ export function mergeUsageCopies(held: UsageRecord, copy: UsageRecord): UsageRec
       cacheCreationTokens: Math.max(a.cacheCreationTokens, b.cacheCreationTokens),
       outputTokens: Math.max(a.outputTokens, b.outputTokens),
       reasoningTokens: Math.max(a.reasoningTokens, b.reasoningTokens),
+      ...(unsplitTokens > 0 ? { unsplitTokens } : {}),
     },
     reportedCostUsd,
   };
@@ -324,6 +327,9 @@ export class UsageAggregator {
     totals.cacheCreationTokens += record.totals.cacheCreationTokens;
     totals.outputTokens += record.totals.outputTokens;
     totals.reasoningTokens += record.totals.reasoningTokens;
+    if (record.totals.unsplitTokens) {
+      totals.unsplitTokens = (totals.unsplitTokens ?? 0) + record.totals.unsplitTokens;
+    }
     bucket.costUsd += priced.costUsd;
     if (priced.categoryCostUsd !== null) {
       const sum = bucket.categoryCostUsd;
@@ -349,11 +355,7 @@ export class UsageAggregator {
     bucket.records += 1;
     if (priced.costSource === "unpriced") {
       bucket.unpricedRecords += 1;
-      bucket.unpricedTokens +=
-        record.totals.uncachedInputTokens +
-        record.totals.cachedInputTokens +
-        record.totals.cacheCreationTokens +
-        record.totals.outputTokens;
+      bucket.unpricedTokens += totalTokens(record.totals);
     }
     if (priced.costSource === "providerReported") bucket.providerReportedRecords += 1;
   }

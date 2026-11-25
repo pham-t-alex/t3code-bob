@@ -18,6 +18,7 @@ import type {
 import { codexAuthHandoffUrl } from "@t3tools/shared/codexAuthHandoff";
 import { providerAuthReturnUrl } from "@t3tools/shared/providerAuthReturnUrl";
 import { isLoopbackHost } from "@t3tools/shared/preview";
+import { toOsAppLink } from "@t3tools/shared/remote";
 import { CheckIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
 import {
   Children,
@@ -510,7 +511,8 @@ function ManagedCodexSetup({
     if (pendingRef.current) return;
     setTransferFailed(false);
     setRequestedMethodId(methodId);
-    const returnUrl = new URL(window.location.href);
+    // Fork: the browser returns through the OS, which must reach Bob rather than stock T3 Code.
+    const returnUrl = new URL(toOsAppLink(window.location.href));
     if (returnUrl.pathname === "/welcome") returnUrl.hash = `agents:${environmentId}`;
     if (returnUrl.pathname === "/settings/providers")
       returnUrl.searchParams.set("instanceId", instanceId);

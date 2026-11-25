@@ -378,8 +378,27 @@ describe("mergeUsage", () => {
         environment(
           "env-a",
           summary(
-            [bucket({ costUsd: 10 })],
-            [{ provider: "claude", hostId: "mac", homePath: "/a" }],
+            [
+              bucket({ costUsd: 10 }),
+              bucket({
+                provider: "bob",
+                model: "Bob",
+                costUsd: 1,
+                costSource: "providerReported",
+                totals: {
+                  uncachedInputTokens: 0,
+                  cachedInputTokens: 0,
+                  cacheCreationTokens: 0,
+                  outputTokens: 0,
+                  reasoningTokens: 0,
+                  unsplitTokens: 2000,
+                },
+              }),
+            ],
+            [
+              { provider: "claude", hostId: "mac", homePath: "/a" },
+              { provider: "bob", hostId: "mac", homePath: "/a/.bob" },
+            ],
           ),
         ),
         environment(
@@ -394,7 +413,10 @@ describe("mergeUsage", () => {
       USAGE_CONTRACT_VERSION,
     );
 
-    expect(merged.costUsd).toBe(14);
+    expect(merged.costUsd).toBe(15);
+    expect(merged.unsplitTokens).toBe(2000);
+    expect(merged.totalTokens).toBe(1160 + 1160 + 2000);
+    expect(merged.providers.find((entry) => entry.provider === "bob")?.totalTokens).toBe(2000);
     expect(merged.contractMismatches).toEqual([]);
   });
 

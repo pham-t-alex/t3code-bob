@@ -20,6 +20,11 @@ export function getDesktopScheme(isDevelopment: boolean): string {
   return isDevelopment ? DESKTOP_DEVELOPMENT_SCHEME : DESKTOP_PRODUCTION_SCHEME;
 }
 
+// Fork: the scheme registered with the OS for app links; see toOsAppLink in @t3tools/shared/remote.
+export function getOsLinkScheme(isDevelopment: boolean): string {
+  return isDevelopment ? DESKTOP_DEVELOPMENT_SCHEME : "t3code-bob";
+}
+
 export function getDesktopOrigin(isDevelopment: boolean): string {
   return `${getDesktopScheme(isDevelopment)}://${DESKTOP_HOST}`;
 }
@@ -108,7 +113,7 @@ function withContentSecurityPolicy(response: Response, policy: string): Response
 }
 
 // Must run synchronously before Electron emits ready.
-function registerDesktopSchemePrivilegesSync(): void {
+export function registerDesktopSchemePrivilegesSync(): void {
   Electron.protocol.registerSchemesAsPrivileged([
     {
       scheme: DESKTOP_PRODUCTION_SCHEME,

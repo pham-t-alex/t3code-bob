@@ -11,6 +11,7 @@ import * as Scope from "effect/Scope";
 import type * as Electron from "electron";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { fromOsAppLink } from "@t3tools/shared/remote";
 
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import { stopChildProcessesBeforeExit, stopZygotesBeforeExit } from "./DesktopExitChildren.ts";
@@ -236,7 +237,9 @@ export const make = DesktopLifecycle.of({
       const args = yield* HostProcess.Arguments;
       yield* electronApp.relaunch({
         execPath: yield* HostProcess.ExecutablePath,
-        args: args.slice(1).filter((arg) => !arg.toLowerCase().startsWith(appLinkPrefix)),
+        args: args
+          .slice(1)
+          .filter((arg) => !fromOsAppLink(arg).toLowerCase().startsWith(appLinkPrefix)),
       });
       yield* electronApp.exit(0);
     }).pipe(

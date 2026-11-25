@@ -69,6 +69,7 @@ export function tokenTypeSegments(
     { label: msg("Cache read"), value: tokens.cachedInputTokens, color: TYPE_COLORS.cacheRead },
     { label: msg("Cache write"), value: tokens.cacheCreationTokens, color: TYPE_COLORS.cacheWrite },
     { label: msg("Output"), value: tokens.outputTokens, color: TYPE_COLORS.output },
+    { label: msg("Other"), value: tokens.unsplitTokens ?? 0, color: TYPE_COLORS.other },
   ];
 }
 

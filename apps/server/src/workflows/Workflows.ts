@@ -15,6 +15,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import { DEFAULT_HOME_DIR_NAME } from "../os-jank.ts";
 import type { WebhookRequest } from "./triggers.ts";
 import type * as WorkflowStore from "./WorkflowStore.ts";
 
@@ -240,8 +241,7 @@ export const wholeLists = (updates: Stream.Stream<WorkflowRunsUpdate>) =>
     ),
   );
 
-export const OFF =
-  'Workflows are off on this server. Turn them on in its Settings → Labs → Workflows, or without a desktop, set "workflowsEnabled": true in userdata/settings.json in its T3 home (~/.t3 by default).';
+export const OFF = `Workflows are off on this server. Turn them on in its Settings → Labs → Workflows, or without a desktop, set "workflowsEnabled": true in userdata/settings.json in its T3 home (~/${DEFAULT_HOME_DIR_NAME} by default).`;
 
 const refuseOff = Effect.fn("Workflows.off")(function* () {
   return yield* new WorkflowInputError({ problem: OFF });

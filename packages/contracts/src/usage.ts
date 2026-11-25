@@ -16,6 +16,7 @@ export const UsageProviderKind = Schema.Literals([
   "antigravity",
   "pi",
   "muse",
+  "bob", // Fork: IBM Bob.
 ]);
 export type UsageProviderKind = typeof UsageProviderKind.Type;
 
@@ -39,6 +40,8 @@ export const UsageTokenTotals = Schema.Struct({
   cacheCreationTokens: NonNegativeInt,
   outputTokens: NonNegativeInt,
   reasoningTokens: NonNegativeInt,
+  /** Fork: tokens a provider reports only as a total (IBM Bob), in no other field. */
+  unsplitTokens: Schema.optionalKey(NonNegativeInt),
 });
 export type UsageTokenTotals = typeof UsageTokenTotals.Type;
 
