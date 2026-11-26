@@ -36,6 +36,7 @@ Tests asserting these values are updated to match. A new upstream place that har
 **Releases.** Pushing a tag `v<upstream version>-bob.<n>` (for example `v0.1.11-bob.1`; upstream tags a release before bumping `package.json`, so the tag names the upstream version) runs the fork-owned `.github/workflows/release-bob.yml`. It calls upstream's `release-desktop.yml` on GitHub-hosted runners, unsigned, and publishes the Apple Silicon and Intel `.dmg` plus server archives for macOS arm64 and Linux x64/arm64. Upstream's `release.yml` must stay disabled, since its tag filter matches these tags.
 
 - `CLI_RELEASE_REPOSITORY` in `packages/shared/src/cliRelease.ts` points SSH installs and `t3 update` at this repo (`apps/server/src/cli/update.test.ts` and `packages/ssh/src/tunnel.test.ts` assert it), and `RELEASES_URL` in `apps/desktop/src/app/DesktopStartupRecovery.ts` links to its releases.
+- `release-bob.yml`'s `build_bundle` job is a trimmed copy of `release.yml`'s, so a sync that changes upstream's job needs the relevant change there.
 - `release-bob.yml` publishes the installers as `T3-Code-Bob-<version>-<arch>.dmg`; upstream names them `T3-Code-<version>-<arch>`.
 - `scripts/build-desktop-artifact.ts` leaves out the update feed for `-bob.<n>` versions: unsigned macOS builds cannot update in place and the release publishes no updater manifests, so the app's update checks stay off. `scripts/build-desktop-artifact.test.ts` asserts it.
 - The `-bob.<n>` suffix is what keeps an SSH host from running a stock `t3` of the same upstream version from its `PATH`.
